@@ -1,0 +1,47 @@
+- id: 1
+  video: netflix_aerial
+  frame_number: 175
+  roi_left: 3000
+  roi_top: 600
+  roi_width: 1000
+  roi_height: 600
+
+- id: 2
+  video: netflix_aerial
+  frame_number: 675
+  roi_left: 1500
+  roi_top: 1000
+  roi_width: 1500
+  roi_height: 600
+
+- id: 3
+  video: netflix_aerial
+  frame_number: 800
+  roi_left: 2000
+  roi_top: 0
+  roi_width: 1500
+  roi_height: 600
+
+- id: 4
+  video: netflix_aerial
+  frame_number: 207
+  roi_left: 800
+  roi_top: 400
+  roi_width: 800
+  roi_height: 600
+
+- id: 5
+  video: netflix_aerial
+  frame_number: 207
+  roi_left: 3500
+  roi_top: 650
+  roi_width: 500
+  roi_height: 600
+
+- id: 6
+  video: netflix_aerial
+  frame_number: 630
+  roi_left: 500
+  roi_top: 1000
+  roi_width: 1000
+  roi_height: 600
