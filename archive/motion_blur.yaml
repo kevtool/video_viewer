@@ -1,0 +1,151 @@
+- id: 1
+  video: netflix_aerial
+  frame_number: 175
+  roi_left: 3000
+  roi_top: 600
+  roi_width: 1000
+  roi_height: 600
+
+- id: 2
+  video: netflix_aerial
+  frame_number: 675
+  roi_left: 1500
+  roi_top: 1000
+  roi_width: 1500
+  roi_height: 600
+
+- id: 3
+  video: netflix_aerial
+  frame_number: 800
+  roi_left: 2000
+  roi_top: 0
+  roi_width: 1500
+  roi_height: 600
+
+- id: 4
+  video: netflix_aerial
+  frame_number: 207
+  roi_left: 800
+  roi_top: 400
+  roi_width: 800
+  roi_height: 600
+
+- id: 5
+  video: netflix_aerial
+  frame_number: 207
+  roi_left: 3500
+  roi_top: 650
+  roi_width: 500
+  roi_height: 600
+
+- id: 6
+  video: netflix_aerial
+  frame_number: 630
+  roi_left: 500
+  roi_top: 1000
+  roi_width: 1000
+  roi_height: 600
+
+- id: 7
+  video: netflix_tunnelflag
+  frame_number: 286
+  roi_left: 300
+  roi_top: 0
+  roi_width: 1000
+  roi_height: 700
+
+- id: 8
+  video: netflix_tunnelflag
+  frame_number: 200
+  roi_left: 2500
+  roi_top: 400
+  roi_width: 800
+  roi_height: 700
+
+- id: 9
+  video: netflix_tunnelflag
+  frame_number: 350
+  roi_left: 3000
+  roi_top: 800
+  roi_width: 1000
+  roi_height: 700
+
+- id: 10
+  video: netflix_rollercoaster
+  frame_number: 735
+  roi_left: 2400
+  roi_top: 700
+  roi_width: 1000
+  roi_height: 700
+
+- id: 11
+  video: netflix_rollercoaster
+  frame_number: 452
+  roi_left: 2800
+  roi_top: 600
+  roi_width: 1000
+  roi_height: 700
+
+- id: 12
+  video: netflix_rollercoaster
+  frame_number: 1115
+  roi_left: 2100
+  roi_top: 800
+  roi_width: 1000
+  roi_height: 800
+
+- id: 13
+  video: netflix_rollercoaster
+  frame_number: 1090
+  roi_left: 1550
+  roi_top: 1050
+  roi_width: 700
+  roi_height: 700
+
+- id: 14
+  video: netflix_rollercoaster
+  frame_number: 538
+  roi_left: 0
+  roi_top: 800
+  roi_width: 900
+  roi_height: 800
+
+- id: 15
+  video: netflix_foodmarket2
+  frame_number: 45
+  roi_left: 1800
+  roi_top: 1500
+  roi_width: 700
+  roi_height: 500
+
+- id: 16
+  video: netflix_ritualdance
+  frame_number: 148
+  roi_left: 900
+  roi_top: 900
+  roi_width: 700
+  roi_height: 800
+
+- id: 17
+  video: netflix_ritualdance
+  frame_number: 368
+  roi_left: 3700
+  roi_top: 1200
+  roi_width: 300
+  roi_height: 400
+
+- id: 18
+  video: netflix_ritualdance
+  frame_number: 451
+  roi_left: 2600
+  roi_top: 220
+  roi_width: 700
+  roi_height: 800
+
+- id: 19
+  video: netflix_ritualdance
+  frame_number: 483
+  roi_left: 3300
+  roi_top: 900
+  roi_width: 796
+  roi_height: 800
