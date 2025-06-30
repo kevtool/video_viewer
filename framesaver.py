@@ -2,7 +2,7 @@ import subprocess
 import numpy as np
 import cv2
 import re
-import yaml
+import yaml, json
 import os
 
 class Y4MVideoReader:
@@ -124,7 +124,7 @@ class Y4MVideoReader:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-def save_frames(yml_file):
+def yml_save_frames(yml_file):
     with open(yml_file, 'r') as file:
         frames = yaml.safe_load(file)
 
@@ -136,6 +136,20 @@ def save_frames(yml_file):
 
                 with Y4MVideoReader(video_path) as reader:
                     reader.extract_roi(frame_num=frame_num, roi_rect=(x, y, w, h), save_path=f"dataset/motion_blur/{id}.png", show=False)
+
+def jsonl_save_frames(category):
+    jsonl_file = f'dataset_files/{category}.jsonl'
+
+    with open(jsonl_file, 'r') as file:
+        for id, line in enumerate(file):
+            frame = json.loads(line)
+            video_path = "./videos/" + frame['video'] + ".y4m"
+
+            if os.path.isfile(video_path):
+                frame_num, x, y, w, h = frame['frame_number'], frame['left'], frame['top'], frame['width'], frame['height']
+
+                with Y4MVideoReader(video_path) as reader:
+                    reader.extract_roi(frame_num=frame_num, roi_rect=(x, y, w, h), save_path=f"dataset/{category}/{id}.png", show=False)
 
 if __name__ == "__main__":
     file = "./videos/netflix_ritualdance.y4m"
@@ -153,4 +167,4 @@ if __name__ == "__main__":
     #     reader.extract_roi(frame_num=483, roi_rect=(3300, 900, 796, 800), zoom_factor=1.1)
 
 
-    save_frames('dataset_files/motion_blur.yaml')
+    jsonl_save_frames(category='texture_loss_static')
