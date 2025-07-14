@@ -114,6 +114,37 @@ class Y4MVideoReader:
             self.close()
             cv2.destroyAllWindows()
 
+    def visualize_roi_on_frame(self, frame_num, roi_rect, save_path=None, show=True):
+        x, y, w, h = roi_rect
+        try:
+            # Calculate time offset for seeking
+            start_time = frame_num / self.fps if self.fps > 0 else 0
+
+            # Restart ffmpeg with seek to target frame
+            self.pipe = self._start_ffmpeg_process(start_time)
+
+            # Read the first frame after seeking
+            frames = self.read_frames()
+            for idx, frame in enumerate(frames, start=frame_num):
+                # Draw ROI rectangle on the frame
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)  # Green box, thickness 2
+                cv2.putText(frame, f"Frame: {idx}", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+                if show:
+                    cv2.imshow(f"Full Frame with ROI - Frame {frame_num}", frame)
+                    print(f"Displayed full frame with ROI boundary for frame {frame_num}")
+                    cv2.waitKey(0)  # Wait until keypress
+
+                if save_path:
+                    cv2.imwrite(save_path, frame)
+                    print(f"Saved full frame with ROI to: {save_path}")
+
+                break  # Only process one frame
+        finally:
+            self.close()
+            cv2.destroyAllWindows()
+
     def close(self):
         self.pipe.stdout.close()
         self.pipe.terminate()
@@ -151,8 +182,35 @@ def jsonl_save_frames(category):
                 with Y4MVideoReader(video_path) as reader:
                     reader.extract_roi(frame_num=frame_num, roi_rect=(x, y, w, h), save_path=f"dataset/{category}/{id}.png", show=False)
 
+        
+def save_roi_contexts(category):
+    jsonl_file = f'dataset_files/{category}.jsonl'
+
+    with open(jsonl_file, 'r') as file:
+        for id, line in enumerate(file):
+            frame = json.loads(line)
+            video_path = "./videos/" + frame['video'] + ".y4m"
+
+            # execute only if current video is downloaded
+            if os.path.isfile(video_path):
+                frame_num, x, y, w, h = frame['frame_number'], frame['left'], frame['top'], frame['width'], frame['height']
+
+                start_frame = max(0, frame_num - 5)
+                end_frame = frame_num + 6
+
+                folder_path = f'dataset/{category}/{id}'
+                if not os.path.exists(folder_path):
+                    os.makedirs(folder_path)
+                    with Y4MVideoReader(video_path) as reader:
+                        for fnum in range(start_frame, end_frame):
+                            reader.extract_roi(frame_num=fnum, roi_rect=(x, y, w, h), save_path=folder_path+f"/roi{fnum}.png", show=False)
+                            reader.visualize_roi_on_frame(frame_num=fnum, roi_rect=(x, y, w, h), save_path=folder_path+f"/box{fnum}.png", show=False)
+
+                else:
+                    print(f'WARNING: {category} {id} folder already exists, skipping instance')
+
 if __name__ == "__main__":
-    file = "./videos/netflix_ritualdance.y4m"
+    file = "./videos/netflix_aerial.y4m"
 
     # play the video
     # with Y4MVideoReader(file) as reader:
@@ -167,4 +225,8 @@ if __name__ == "__main__":
     #     reader.extract_roi(frame_num=483, roi_rect=(3300, 900, 796, 800), zoom_factor=1.1)
 
 
-    jsonl_save_frames(category='texture_loss_static')
+    # jsonl_save_frames(category='texture_loss_static')
+
+    # with Y4MVideoReader(file) as reader:
+    #     reader.visualize_roi_on_frame(frame_num=100, roi_rect=(3300, 900, 600, 600), save_path="test.png")
+    save_roi_contexts(category='texture_loss_static')
