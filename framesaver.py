@@ -229,4 +229,4 @@ if __name__ == "__main__":
 
     # with Y4MVideoReader(file) as reader:
     #     reader.visualize_roi_on_frame(frame_num=100, roi_rect=(3300, 900, 600, 600), save_path="test.png")
-    save_roi_contexts(category='texture_loss_static')
+    save_roi_contexts(category='texture_loss_dynamic')

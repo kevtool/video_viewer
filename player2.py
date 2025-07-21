@@ -277,7 +277,7 @@ class Y4MPlayer(QWidget):
 
 def main():
     app = QApplication(sys.argv)
-    player = Y4MPlayer(savefile='dataset_files/texture_loss_dynamic.jsonl')
+    player = Y4MPlayer(savefile='dataset_files/color_distortion.jsonl')
     player.show()
     sys.exit(app.exec_())
 
