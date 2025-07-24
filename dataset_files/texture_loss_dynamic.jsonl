@@ -38,3 +38,5 @@
 {"video": "stockholm", "frame_number": 147, "left": 922, "top": 480, "width": 255, "height": 92}
 {"video": "stockholm", "frame_number": 127, "left": 304, "top": 37, "width": 391, "height": 103}
 {"video": "riverbed", "frame_number": 143, "left": 941, "top": 696, "width": 547, "height": 254}
+{"video": "rush_hour", "frame_number": 33, "left": 555, "top": 201, "width": 432, "height": 394}
+{"video": "rush_hour", "frame_number": 98, "left": 790, "top": 509, "width": 341, "height": 411}
