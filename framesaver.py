@@ -4,6 +4,8 @@ import cv2
 import re
 import yaml, json
 import os
+import imageio.v3 as iio
+from pathlib import Path
 
 class Y4MVideoReader:
     def __init__(self, file_path):
@@ -182,8 +184,43 @@ def jsonl_save_frames(category):
                 with Y4MVideoReader(video_path) as reader:
                     reader.extract_roi(frame_num=frame_num, roi_rect=(x, y, w, h), save_path=f"dataset/{category}/{id}.png", show=False)
 
+def find_last_number(s):
+    numbers = re.findall(r'\d+', s)  # Find all sequences of digits
+    return int(numbers[-1]) if numbers else None  # Convert last to int
+
+def images_to_y4m(folder_path, output_y4m, fps=30, width=1920, height=1080):
+    fpath = Path(folder_path)
+    image_paths = [f'{folder_path}/{f.name}' for f in fpath.iterdir() if f.is_file() and f.name.startswith('box')]
+
+    start_number = find_last_number(image_paths[0])
+    print(image_paths)
+    print(start_number)
+
+    cmd = [
+        'ffmpeg',
+        '-start_number', str(start_number),
+        '-r', str(fps),                   # Input frame rate
+        '-i', f'{folder_path}/box%d.png',              # Input images
+        '-f', 'rawvideo',                 # Output as raw video stream
+        '-pix_fmt', 'yuv420p',            # Required pixel format
+        '-s', f'{width}x{height}',        # Must specify resolution
+        '-f', 'yuv4mpegpipe',             # Output format: YUV4MPEG
+        output_y4m
+    ]
+
+    print(cmd)
+
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        print(f"Successfully created {output_y4m}")
+    except subprocess.CalledProcessError as e:
+        print("FFmpeg error:", e.stderr.decode())
+        raise
+    except FileNotFoundError:
+        print("'ffmpeg' not found. Install ffmpeg and make sure it's in your PATH.")
+        raise
         
-def save_roi_contexts(category):
+def save_roi_contexts(category, neighboring_frames=5, force_regen=False, generate_video=False):
     jsonl_file = f'dataset_files/{category}.jsonl'
 
     with open(jsonl_file, 'r') as file:
@@ -195,16 +232,35 @@ def save_roi_contexts(category):
             if os.path.isfile(video_path):
                 frame_num, x, y, w, h = frame['frame_number'], frame['left'], frame['top'], frame['width'], frame['height']
 
-                start_frame = max(0, frame_num - 5)
-                end_frame = frame_num + 6
+                start_frame = max(0, frame_num - neighboring_frames)
+                end_frame = frame_num + neighboring_frames + 1
 
                 folder_path = f'dataset/{category}/{id}'
-                if not os.path.exists(folder_path):
-                    os.makedirs(folder_path)
+                if (not os.path.exists(folder_path)) or force_regen:
+                    if not os.path.exists(folder_path): os.makedirs(folder_path)
                     with Y4MVideoReader(video_path) as reader:
                         for fnum in range(start_frame, end_frame):
                             reader.extract_roi(frame_num=fnum, roi_rect=(x, y, w, h), save_path=folder_path+f"/roi{fnum}.png", show=False)
                             reader.visualize_roi_on_frame(frame_num=fnum, roi_rect=(x, y, w, h), save_path=folder_path+f"/box{fnum}.png", show=False)
+
+                    if generate_video:
+                        # fpath = Path(folder_path)
+                        # image_paths = [f'{folder_path}/{f.name}' for f in fpath.iterdir() if f.is_file() and f.name.startswith('box')]
+                        # print(image_paths)
+                        # frames = [iio.imread(path) for path in image_paths]
+
+                        video = f"dataset/{category}/{id}/box.y4m"
+                        # iio.imwrite(
+                        #     video,
+                        #     frames,
+                        #     extension=".y4m",
+                        #     plugin="FFMPEG",
+                        #     format="yuv4mpeg",
+                        #     fps=5,
+                        #     pixelformat="yuv420p"
+                        # )
+                        # print(f"Saved frames as video {video}")
+                        images_to_y4m(folder_path, video)
 
                 else:
                     print(f'WARNING: {category} {id} folder already exists, skipping instance')
@@ -229,4 +285,4 @@ if __name__ == "__main__":
 
     # with Y4MVideoReader(file) as reader:
     #     reader.visualize_roi_on_frame(frame_num=100, roi_rect=(3300, 900, 600, 600), save_path="test.png")
-    save_roi_contexts(category='texture_loss_dynamic')
+    save_roi_contexts(category='texture_loss_static', neighboring_frames=10, force_regen=True, generate_video=True)
