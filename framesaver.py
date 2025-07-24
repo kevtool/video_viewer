@@ -61,6 +61,31 @@ class Y4MVideoReader:
         frame = np.frombuffer(raw_frame, dtype=np.uint8)
         frame = frame.reshape((self.height, self.width, 3)).copy()
         return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+    
+    def get_frame_count(self):
+        """
+        Returns the total number of frames in the Y4M video using ffprobe.
+        """
+        import subprocess
+        import re
+
+        cmd = [
+            'ffprobe',
+            '-v', 'error',
+            '-select_streams', 'v:0',
+            '-count_packets',
+            '-show_entries', 'stream=nb_read_packets',
+            '-of', 'csv=p=0',
+            self.file_path
+        ]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        output = result.stdout.strip()
+        if not output or not re.match(r'^\d+$', output):
+            # Fallback: count 'FRAME' headers manually
+            return self._count_frames_fallback()
+
+        return int(output)
 
     def play(self, resize_factor=0.3, start_frame_num=0):
         try:
@@ -190,7 +215,7 @@ def find_last_number(s):
 
 def images_to_y4m(folder_path, output_y4m, fps=30, width=1920, height=1080):
     fpath = Path(folder_path)
-    image_paths = [f'{folder_path}/{f.name}' for f in fpath.iterdir() if f.is_file() and f.name.startswith('box')]
+    image_paths = [f'{folder_path}/{f.name}' for f in fpath.iterdir() if f.is_file() and f.name.startswith('box') and f.name.endswith('png')]
 
     start_number = find_last_number(image_paths[0])
     print(image_paths)
@@ -232,38 +257,46 @@ def save_roi_contexts(category, neighboring_frames=5, force_regen=False, generat
             if os.path.isfile(video_path):
                 frame_num, x, y, w, h = frame['frame_number'], frame['left'], frame['top'], frame['width'], frame['height']
 
-                start_frame = max(0, frame_num - neighboring_frames)
-                end_frame = frame_num + neighboring_frames + 1
 
                 folder_path = f'dataset/{category}/{id}'
-                if (not os.path.exists(folder_path)) or force_regen:
-                    if not os.path.exists(folder_path): os.makedirs(folder_path)
-                    with Y4MVideoReader(video_path) as reader:
+                with Y4MVideoReader(video_path) as reader:
+                    start_frame = max(0, frame_num - neighboring_frames)
+                    end_frame = min(reader.get_frame_count() - 1, frame_num + neighboring_frames + 1)
+
+                    if (not os.path.exists(folder_path)) or force_regen:
+                        if not os.path.exists(folder_path): os.makedirs(folder_path)
+                    
                         for fnum in range(start_frame, end_frame):
                             reader.extract_roi(frame_num=fnum, roi_rect=(x, y, w, h), save_path=folder_path+f"/roi{fnum}.png", show=False)
                             reader.visualize_roi_on_frame(frame_num=fnum, roi_rect=(x, y, w, h), save_path=folder_path+f"/box{fnum}.png", show=False)
 
-                    if generate_video:
-                        # fpath = Path(folder_path)
-                        # image_paths = [f'{folder_path}/{f.name}' for f in fpath.iterdir() if f.is_file() and f.name.startswith('box')]
-                        # print(image_paths)
-                        # frames = [iio.imread(path) for path in image_paths]
+                        if generate_video:
+                            # fpath = Path(folder_path)
+                            # image_paths = [f'{folder_path}/{f.name}' for f in fpath.iterdir() if f.is_file() and f.name.startswith('box')]
+                            # print(image_paths)
+                            # frames = [iio.imread(path) for path in image_paths]
 
-                        video = f"dataset/{category}/{id}/box.y4m"
-                        # iio.imwrite(
-                        #     video,
-                        #     frames,
-                        #     extension=".y4m",
-                        #     plugin="FFMPEG",
-                        #     format="yuv4mpeg",
-                        #     fps=5,
-                        #     pixelformat="yuv420p"
-                        # )
-                        # print(f"Saved frames as video {video}")
-                        images_to_y4m(folder_path, video)
+                            files_to_remove = Path(folder_path).glob(f'*x.y4m')
+                            for file_path in files_to_remove:
+                                if file_path.is_file():  # Ensure it's a file
+                                    file_path.unlink()
+                                    print(f"Removed: {file_path}")
 
-                else:
-                    print(f'WARNING: {category} {id} folder already exists, skipping instance')
+                            video = f"dataset/{category}/{id}/box.y4m"
+                            # iio.imwrite(
+                            #     video,
+                            #     frames,
+                            #     extension=".y4m",
+                            #     plugin="FFMPEG",
+                            #     format="yuv4mpeg",
+                            #     fps=5,
+                            #     pixelformat="yuv420p"
+                            # )
+                            # print(f"Saved frames as video {video}")
+                            images_to_y4m(folder_path, video)
+
+                    else:
+                        print(f'WARNING: {category} {id} folder already exists, skipping instance')
 
 if __name__ == "__main__":
     file = "./videos/netflix_aerial.y4m"
