@@ -76,3 +76,7 @@
 {"video": "aspen", "frame_number": 426, "left": 1287, "top": 611, "width": 137, "height": 122}
 {"video": "aspen", "frame_number": 524, "left": 50, "top": 604, "width": 277, "height": 307}
 {"video": "aspen", "frame_number": 287, "left": 596, "top": 823, "width": 276, "height": 215}
+{"video": "crowd_run", "frame_number": 236, "left": 665, "top": 440, "width": 326, "height": 248}
+{"video": "crowd_run", "frame_number": 254, "left": 763, "top": 41, "width": 766, "height": 294}
+{"video": "crowd_run", "frame_number": 453, "left": 2461, "top": 734, "width": 400, "height": 106}
+{"video": "netflix_windandnature", "frame_number": 285, "left": 1604, "top": 1601, "width": 629, "height": 436}
