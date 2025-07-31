@@ -7,13 +7,13 @@
 
 - add functionality that records first frame and last frame of part of a video and cut it (video cutter)
 
-##### Video website
+#### Video website
 https://media.xiph.org/video/derf/
 
 - If you get a raw file webpage while trying to download a video, right click on the page and choose 'Save as', and then download the video as a .y4m
 - If you try to download a video and get a .txt file, you can just change the extension to .y4m
 
-##### netflix dark scene videos  
+#### netflix dark scene videos  
 dinnerscene (kevin)  
 barscene (kevin)  
 dancers (kevin)  
@@ -25,16 +25,16 @@ squareandtimelapse (mahtab)
 
 amazon_hdr_education_reel
 
-##### gaming videos  
+#### gaming videos  
 skipping gaming videos for now  
 
 
-##### SD content and below videos  
+#### SD content and below videos  
 Kevin looks at first 17 videos  
 Qi  looks at next 17 videos  
 Mahtab looks at the rest  
 
-##### HD content and above vidoes  
+#### HD content and above vidoes  
 Kevin looks at first 11 videos  
 Qi looks at next 11 videos  
 Mahtab looks at the rest
