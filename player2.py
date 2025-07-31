@@ -7,6 +7,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QFileDialog, QScrollArea
 )
 import json
+import numpy as np
 
 
 class VideoLabel(QLabel):
@@ -212,6 +213,122 @@ class Y4MPlayer(QWidget):
         self.video_label.setPixmap(scaled_pixmap)
         self.global_frame_number = int(round(frame.time * self.fps))
         self.frame_counter_label.setText(f"Frame: {self.global_frame_number} | Time: {frame.time:.2f}s")
+
+    def extract_rgb_data(self, frame_numbers=None):
+        """
+        Extract RGB data from the loaded Y4M video.
+
+        Args:
+            frame_numbers (list or None): Specific frame indices to extract.
+                                        If None, extracts all frames.
+
+        Returns:
+            List of NumPy arrays (H x W x 3, dtype=uint8), one per frame.
+        """
+        if not hasattr(self, 'container') or self.container is None:
+            print("No video loaded.")
+            return []
+
+
+        rgb_frames = []
+        self.frame_iter = self.container.decode(video=0)  # Reset iterator
+        current_frame_idx = 0
+
+        try:
+            while True:
+                frame = next(self.frame_iter)
+                frame_time = frame.time
+                frame_idx = int(round(frame_time * self.fps))
+
+                if frame_numbers is None or frame_idx in frame_numbers:
+                    # Convert frame to RGB PIL Image, then to NumPy array
+                    img = frame.to_image()  # PIL Image (RGB)
+                    rgb_array = np.array(img)  # Shape: (H, W, 3), dtype=uint8
+                    rgb_frames.append(rgb_array)
+
+                    # If we have extracted all requested frames, stop early
+                    if frame_numbers and len(rgb_frames) >= len(frame_numbers):
+                        break
+
+                current_frame_idx += 1
+        except StopIteration:
+            pass
+        finally:
+            self.frame_iter = self.container.decode(video=0)  # Reset for playback
+
+        print(f"Extracted {len(rgb_frames)} RGB frame(s).")
+        return rgb_frames
+    
+    def extract_yuv_data(self, frame_numbers=None):
+        """
+        Extract YUV data from the loaded Y4M video.
+
+        Args:
+            frame_numbers (list or None): Specific frame indices to extract.
+                                        If None, extracts all frames.
+
+        Returns:
+            List of dicts: [
+                {
+                    'y': np.array (H x W, dtype=uint8),
+                    'u': np.array (H/2 x W/2, dtype=uint8),
+                    'v': np.array (H/2 x W/2, dtype=uint8),
+                    'width': int,
+                    'height': int,
+                    'frame_index': int
+                },
+                ...
+            ]
+        """
+        if not hasattr(self, 'container') or self.container is None:
+            print("No video loaded.")
+            return []
+
+        yuv_frames = []
+        frame_iter = self.container.decode(video=0)  # Don't overwrite self.frame_iter
+        current_frame_idx = 0
+
+        try:
+            while True:
+                frame = next(frame_iter)
+                frame_time = frame.time
+                frame_idx = int(round(frame_time * self.fps))
+
+                if frame_numbers is None or frame_idx in frame_numbers:
+                    # Access raw YUV planes directly
+                    y_plane = np.array(frame.planes[0])  # Y (full resolution)
+                    u_plane = np.array(frame.planes[1])  # U (half width/height for 4:2:0)
+                    v_plane = np.array(frame.planes[2])  # V (half width/height for 4:2:0)
+
+                    height, width = y_plane.shape
+                    chroma_height, chroma_width = u_plane.shape
+
+                    yuv_frames.append({
+                        'y': y_plane,
+                        'u': u_plane,
+                        'v': v_plane,
+                        'width': width,
+                        'height': height,
+                        'chroma_width': chroma_width,
+                        'chroma_height': chroma_height,
+                        'frame_index': frame_idx,
+                        'pts': frame.pts,
+                        'time': frame.time
+                    })
+
+                    # Stop early if we have all requested frames
+                    if frame_numbers and len(yuv_frames) >= len(frame_numbers):
+                        break
+
+                current_frame_idx += 1
+        except StopIteration:
+            pass
+        finally:
+            # Re-initialize iterator for playback
+            self.frame_iter = self.container.decode(video=0)
+
+        print(f"Extracted {len(yuv_frames)} YUV frame(s).")
+        return yuv_frames
 
     def seek_video(self, seconds):
         if self.container is None:
