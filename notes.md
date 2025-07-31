@@ -2,18 +2,23 @@ BUGS:
 
 - if the first frame of an example is less than 100 and the last frame is more than 100, then the sorting is not reliable and the video is cutoff
 
+
+TODO:
+
+- add functionality that records first frame and last frame of part of a video and cut it (video cutter)
+
 Video website
 https://media.xiph.org/video/derf/
 
 netflix dark scene videos
-dinnerscene (kevin)
-barscene (kevin)
-dancers (kevin)
-foodmarket (qi)
-tunnelflag (qi)
-ritualdance (qi)
-foodmarket2 (mahtab)
-squareandtimelapse (mahtab)
+dinnerscene (kevin)  
+barscene (kevin)  
+dancers (kevin)  
+foodmarket (qi)  
+tunnelflag (qi)  
+ritualdance (qi)  
+foodmarket2 (mahtab)  
+squareandtimelapse (mahtab)  
 
 amazon_hdr_education_reel
 
