@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
 )
 import json
 import numpy as np
-
+from pathlib import Path
 
 class VideoLabel(QLabel):
     def __init__(self, parent=None):
@@ -79,7 +79,7 @@ class Y4MPlayer(QWidget):
         # UI Elements
         self.frame_counter_label = QLabel("Frame: 0", self)
         self.play_pause_btn = QPushButton("Play")
-        self.load_btn = QPushButton("Load .y4m File")
+        self.load_btn = QPushButton("Load Video")
         self.rewind_btn = QPushButton("<< Rewind 1s")
         self.forward_btn = QPushButton("Forward 1s >>")
         self.record_roi_btn = QPushButton("Record ROI")
@@ -150,10 +150,16 @@ class Y4MPlayer(QWidget):
         self.savefile = savefile
 
     def load_video(self):
-        filename, _ = QFileDialog.getOpenFileName(self, "Open Y4M File", "", "Y4M Files (*.y4m)")
+        filename, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Open Video File", 
+            "", 
+            "Video Files (*.y4m *.mp4 *.mov *.avi *.mkv);;Y4M Files (*.y4m);;MP4 Files (*.mp4);;All Files (*)"
+        )
         if filename:
             try:
-                self.filename = filename.replace('C:/Users/kevin/Documents/MCL/video_distortion/videos/', '').replace('.y4m', '')
+                # self.filename = filename.replace('C:/Users/kevin/Documents/MCL/video_distortion/videos/', '').replace('.y4m', '')
+                self.filename = Path(filename).stem
                 self.container = av.open(filename)
                 self.video_stream = self.container.streams.video[0]
                 self.video_stream.thread_type = "AUTO"
