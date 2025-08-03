@@ -171,6 +171,8 @@ class Y4MPlayer(QWidget):
                 self.global_frame_number = 0
                 self.current_time_sec = 0.0
                 self.frame_counter_label.setText(f"Frame: {self.global_frame_number}")
+                self.total_duration = self.video_stream.duration * float(self.video_stream.time_base)
+                print(self.total_duration)
                 self.timer.start(self.frame_interval)
                 self.play_pause_btn.setText("Pause")
                 # Set original size for correct mapping
@@ -341,7 +343,7 @@ class Y4MPlayer(QWidget):
             return
         was_playing = self.is_playing
         self.timer.stop()
-        target_seconds = max(0.0, self.current_time_sec + seconds)
+        target_seconds = min(max(0.0, self.current_time_sec + seconds), self.total_duration)
         target_pts = int(target_seconds / self.time_base)
         self.container.seek(target_pts, stream=self.video_stream)
         self.frame_iter = self.container.decode(video=0)
