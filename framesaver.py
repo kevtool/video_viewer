@@ -7,7 +7,7 @@ import os
 import imageio.v3 as iio
 from pathlib import Path
 
-class Y4MVideoReader:
+class VideoReader:
     def __init__(self, file_path):
         self.file_path = file_path
         if not os.path.exists(file_path):
@@ -431,7 +431,7 @@ def yml_save_frames(yml_file):
             if os.path.isfile(video_path):
                 id, frame_num, x, y, w, h = frame['id'], frame['frame_number'], frame['roi_left'], frame['roi_top'], frame['roi_width'], frame['roi_height']
 
-                with Y4MVideoReader(video_path) as reader:
+                with VideoReader(video_path) as reader:
                     reader.extract_roi(frame_num=frame_num, roi_rect=(x, y, w, h), save_path=f"dataset/motion_blur/{id}.png", show=False)
 
 def jsonl_save_frames(category):
@@ -445,7 +445,7 @@ def jsonl_save_frames(category):
             if os.path.isfile(video_path):
                 frame_num, x, y, w, h = frame['frame_number'], frame['left'], frame['top'], frame['width'], frame['height']
 
-                with Y4MVideoReader(video_path) as reader:
+                with VideoReader(video_path) as reader:
                     reader.extract_roi(frame_num=frame_num, roi_rect=(x, y, w, h), save_path=f"dataset/{category}/{id}.png", show=False)
 
 def find_last_number(s):
@@ -498,7 +498,7 @@ def save_roi_contexts(category, neighboring_frames=5, force_regen=False, generat
 
 
                 folder_path = f'dataset/{category}/{id}'
-                with Y4MVideoReader(video_path) as reader:
+                with VideoReader(video_path) as reader:
                     start_frame = max(0, frame_num - neighboring_frames)
                     end_frame = min(reader.get_frame_count() - 1, frame_num + neighboring_frames + 1)
 
@@ -537,8 +537,39 @@ def save_roi_contexts(category, neighboring_frames=5, force_regen=False, generat
                     else:
                         print(f'WARNING: {category} {id} folder already exists, skipping instance')
 
-def save_frames(video_path, start_frame_num, end_frame_num):
-    pass
+
+# video cutter
+def save_frames(video_path, folder_path, roi_rect, start_frame_num, end_frame_num):
+    """
+    video_path (str):      path of the video to be cut
+    folder_path (str):     path of the output video to be stored
+    roi_rect (tuple):      position and size of the ROI box
+    start_frame_num (int): number of the starting frame
+    end_frame_num (int):   number of the ending frame
+    """
+
+    with VideoReader(video_path) as reader:
+        start_frame = max(0, start_frame_num)
+        end_frame = min(reader.get_frame_count() - 1, end_frame_num)
+
+        if not os.path.exists(folder_path):                    
+            for fnum in range(start_frame, end_frame):
+                reader.extract_roi(frame_num=fnum, roi_rect=roi_rect, save_path=folder_path+f"/roi{fnum}.png", show=False)
+                reader.visualize_roi_on_frame(frame_num=fnum, roi_rect=roi_rect, save_path=folder_path+f"/box{fnum}.png", show=False)
+
+            files_to_remove = Path(folder_path).glob(f'*x.y4m')
+            for file_path in files_to_remove:
+                if file_path.is_file():  # Ensure it's a file
+                    file_path.unlink()
+                    print(f"Removed: {file_path}")
+
+                    video = f"{folder_path}/box.y4m"
+                    images_to_y4m(folder_path, video)
+
+                else:
+                    print(f'WARNING: {folder_path} folder already exists, skipping instance')
+
+
 
 if __name__ == "__main__":
     file = "./videos/netflix_aerial.y4m"
