@@ -158,8 +158,8 @@ class Y4MPlayer(QWidget):
         )
         if filename:
             try:
-                # self.filename = filename.replace('C:/Users/kevin/Documents/MCL/video_distortion/videos/', '').replace('.y4m', '')
-                self.filename = Path(filename).stem
+                self.filename = filename.replace('C:/Users/kevin/Documents/MCL/video_distortion/videos/', '')
+                # self.filename = Path(filename).stem
                 self.container = av.open(filename)
                 self.video_stream = self.container.streams.video[0]
                 self.video_stream.thread_type = "AUTO"

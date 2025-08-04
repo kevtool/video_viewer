@@ -187,7 +187,7 @@ def yml_save_frames(yml_file):
         frames = yaml.safe_load(file)
 
         for frame in frames:
-            video_path = "./videos/" + frame['video'] + ".y4m"
+            video_path = "./videos/" + frame['video']
 
             if os.path.isfile(video_path):
                 id, frame_num, x, y, w, h = frame['id'], frame['frame_number'], frame['roi_left'], frame['roi_top'], frame['roi_width'], frame['roi_height']
@@ -201,7 +201,7 @@ def jsonl_save_frames(category):
     with open(jsonl_file, 'r') as file:
         for id, line in enumerate(file):
             frame = json.loads(line)
-            video_path = "./videos/" + frame['video'] + ".y4m"
+            video_path = "./videos/" + frame['video']
 
             if os.path.isfile(video_path):
                 frame_num, x, y, w, h = frame['frame_number'], frame['left'], frame['top'], frame['width'], frame['height']
@@ -251,7 +251,7 @@ def save_roi_contexts(category, neighboring_frames=5, force_regen=False, generat
     with open(jsonl_file, 'r') as file:
         for id, line in enumerate(file):
             frame = json.loads(line)
-            video_path = "./videos/" + frame['video'] + ".y4m"
+            video_path = "./videos/" + frame['video']
 
             # execute only if current video is downloaded
             if os.path.isfile(video_path):
@@ -297,6 +297,9 @@ def save_roi_contexts(category, neighboring_frames=5, force_regen=False, generat
 
                     else:
                         print(f'WARNING: {category} {id} folder already exists, skipping instance')
+
+def save_frames(video_path, start_frame_num, end_frame_num):
+    pass
 
 if __name__ == "__main__":
     file = "./videos/netflix_aerial.y4m"
