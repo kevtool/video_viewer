@@ -1,4 +1,4 @@
-import sys
+import sys, os
 import json
 import cv2
 import av
@@ -82,9 +82,14 @@ class VideoLabel(QLabel):
 
 class Y4MPlayer(QWidget):
     """Main application widget: load video, play/pause, draw ROI, zoom, record clipped ROI."""
-    def __init__(self):
+    def __init__(self, save_folder=''):
         super().__init__()
         self.setWindowTitle("Video ROI Recorder")
+
+        # save folder
+        self.save_folder = save_folder
+        if not os.path.exists(save_folder): 
+            os.makedirs(save_folder)
 
         # Playback and state variables
         self.container = None
@@ -340,7 +345,7 @@ class Y4MPlayer(QWidget):
             return
 
         base = Path(self.container.name).stem
-        out = f"{base}_clip.mp4"
+        out = os.path.join(self.save_folder, f"{base}_clip.mp4")
         x0, y0 = self.video_label.topleft
         x1, y1 = self.video_label.bottomright
         w_rect, h_rect = x1 - x0, y1 - y0
@@ -370,7 +375,7 @@ class Y4MPlayer(QWidget):
             'topleft': self.video_label.topleft,
             'bottomright': self.video_label.bottomright
         }
-        jf = f"{Path(self.container.name).stem}_clip.json"
+        jf = os.path.join(self.save_folder, f"{Path(self.container.name).stem}_clip.json")
         with open(jf, 'w') as f:
             json.dump(meta, f, indent=2)
 
@@ -396,6 +401,6 @@ class Y4MPlayer(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    player = Y4MPlayer()
+    player = Y4MPlayer(save_folder='dataset')
     player.show()  # keep the overall window size unchanged
     sys.exit(app.exec_())
