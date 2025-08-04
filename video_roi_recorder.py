@@ -100,6 +100,8 @@ class Y4MPlayer(QWidget):
         self.writer = None
         self.record_start_frame = None
         self.record_end_frame = None
+        self.show_y_mode = False
+        self.next_frame_buffer = None
 
         # -- Video display widgets --
 
@@ -132,11 +134,12 @@ class Y4MPlayer(QWidget):
         self.reset_btn     = QPushButton("Reset Zoom")
         self.start_rec_btn = QPushButton("Start Recording")
         self.stop_rec_btn  = QPushButton("Stop Recording")
+        self.show_y_btn    = QPushButton("Show Y Channel")
 
         for btn in (
             self.play_btn, self.pause_btn, self.roi_btn,
             self.zoom_btn, self.reset_btn,
-            self.start_rec_btn, self.stop_rec_btn
+            self.start_rec_btn, self.stop_rec_btn, self.show_y_btn
         ):
             btn.setEnabled(False)
 
@@ -144,7 +147,7 @@ class Y4MPlayer(QWidget):
         for w in (
             self.frame_label, self.load_btn, self.play_btn, self.pause_btn,
             self.roi_btn, self.zoom_btn, self.reset_btn,
-            self.start_rec_btn, self.stop_rec_btn
+            self.start_rec_btn, self.stop_rec_btn, self.show_y_btn
         ):
             ctrl.addWidget(w)
 
@@ -162,6 +165,7 @@ class Y4MPlayer(QWidget):
         self.reset_btn.clicked.connect(self.clear_zoom)
         self.start_rec_btn.clicked.connect(self.start_recording)
         self.stop_rec_btn.clicked.connect(self.stop_recording)
+        self.show_y_btn.clicked.connect(self.toggle_y_view)
 
         # Playback timer
         self.timer = QTimer()
@@ -185,6 +189,7 @@ class Y4MPlayer(QWidget):
         first = next(self.frame_iter)
         self.video_label.set_original_size(first.width, first.height)
         self.current_frame = first
+        self.next_frame_buffer = next(self.frame_iter)  # prefetch next frame
         self.global_frame_number = 0
         self.update_display_frame(first)
 
@@ -192,7 +197,8 @@ class Y4MPlayer(QWidget):
         self.frame_iter = self.container.decode(video=0)
         for btn in (
             self.play_btn, self.pause_btn, self.roi_btn,
-            self.zoom_btn, self.reset_btn, self.start_rec_btn
+            self.zoom_btn, self.reset_btn, self.start_rec_btn,
+            self.show_y_btn
         ):
             btn.setEnabled(True)
         self.stop_rec_btn.setEnabled(False)
@@ -210,24 +216,27 @@ class Y4MPlayer(QWidget):
 
     def next_frame(self):
         """Advance one frame, record if active, then render update."""
-        try:
-            frame = next(self.frame_iter)
-        except StopIteration:
+        if self.next_frame_buffer is None:
             self.pause()
             return
+    
+        self.current_frame = self.next_frame_buffer
+        try:
+            self.next_frame_buffer = next(self.frame_iter)
+        except StopIteration:
+            self.next_frame_buffer = None
 
-        self.current_frame = frame
-        self.global_frame_number = int(round(frame.time * self.fps))
+        self.global_frame_number = int(round(self.current_frame.time * self.fps))
 
         # If recording, write the cropped ROI region
         if self.recording and self.video_label.topleft:
-            bgr = frame.to_ndarray(format='bgr24')
+            bgr = self.current_frame.to_ndarray(format='bgr24')
             x0, y0 = self.video_label.topleft
             x1, y1 = self.video_label.bottomright
             crop = bgr[y0:y1, x0:x1]
             self.writer.write(crop)
 
-        self.update_display_frame(frame)
+        self.update_display_frame(self.current_frame)
 
     def update_display_frame(self, frame):
         """
@@ -236,6 +245,35 @@ class Y4MPlayer(QWidget):
         """
         arr = frame.to_ndarray(format='rgb24')
         h, w, _ = arr.shape
+
+        if self.show_y_mode or (hasattr(self, 'next_frame_buffer') and self.next_frame_buffer is not None):
+
+            # YUV difference
+            yuv = frame.to_ndarray(format='yuv420p')
+            y = yuv[:h, :w]  # Y channel
+
+            if hasattr(self, 'next_frame_buffer') and self.next_frame_buffer is not None:
+                next_yuv = self.next_frame_buffer.to_ndarray(format='yuv420p')
+                next_Y = next_yuv[:h, :w]
+                # Now you can compute frame diff, optical flow, etc. on Y and next_Y
+                # Example:
+                diff = cv2.absdiff(y, next_Y)
+            else:
+                next_Y = None
+
+            if self.show_y_mode:
+                arr = np.stack([diff] * 3, axis=-1)
+            
+        else:
+            # Regular RGB display
+            
+            if self.next_frame_buffer is not None:
+                next_arr = self.next_frame_buffer.to_ndarray(format='rgb24')
+                # Now you have both `arr` and `next_arr` as numpy arrays (RGB)
+                # Do whatever comparison, optical flow, prediction, etc. you need
+            else:
+                next_arr = None
+            
 
         # compute scale/padding for main video
         lw, lh = self.video_label.width(), self.video_label.height()
@@ -339,6 +377,14 @@ class Y4MPlayer(QWidget):
         print(f"[INFO] Saved metadata to {jf}")
         self.start_rec_btn.setEnabled(True)
         self.stop_rec_btn.setEnabled(False)
+
+    def toggle_y_view(self):
+        """Toggle between RGB and Y (luma) display."""
+        self.show_y_mode = not self.show_y_mode
+        self.show_y_btn.setText("Hide Y Channel" if self.show_y_mode else "Show Y Channel")
+        # Refresh current frame
+        if self.current_frame is not None:
+            self.update_display_frame(self.current_frame)
 
     def closeEvent(self, event):
         """Cleanup on exit."""
