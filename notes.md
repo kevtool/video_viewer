@@ -1,10 +1,10 @@
 #### BUGS:
 
-- none
+- end of video issues
 
 #### TODO:
 
-- none
+- add forward / rewind capabilities
 
 #### Video website
 https://media.xiph.org/video/derf/

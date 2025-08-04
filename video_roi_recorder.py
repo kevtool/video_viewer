@@ -12,6 +12,18 @@ from PyQt5.QtWidgets import (
     QMessageBox, QSizePolicy
 )
 
+NUM_MODES = 4
+ORIGINAL_MODE = 0
+Y_DIFF_MODE = 1
+U_DIFF_MODE = 2
+V_DIFF_MODE = 3
+mode_txt = [
+    'Original',
+    'Y-Diff',
+    'U-Diff',
+    'V-Diff'
+]
+
 class VideoLabel(QLabel):
     """QLabel subclass that lets the user draw an ROI and maps widget coords back to original video pixels."""
     def __init__(self, player):
@@ -105,7 +117,7 @@ class Y4MPlayer(QWidget):
         self.writer = None
         self.record_start_frame = None
         self.record_end_frame = None
-        self.show_y_mode = False
+        self.show_mode = ORIGINAL_MODE
         self.next_frame_buffer = None
 
         # -- Video display widgets --
@@ -139,12 +151,12 @@ class Y4MPlayer(QWidget):
         self.reset_btn     = QPushButton("Reset Zoom")
         self.start_rec_btn = QPushButton("Start Recording")
         self.stop_rec_btn  = QPushButton("Stop Recording")
-        self.show_y_btn    = QPushButton("Show Y Channel")
+        self.show_mode_btn = QPushButton(mode_txt[self.show_mode])
 
         for btn in (
             self.play_btn, self.pause_btn, self.roi_btn,
             self.zoom_btn, self.reset_btn,
-            self.start_rec_btn, self.stop_rec_btn, self.show_y_btn
+            self.start_rec_btn, self.stop_rec_btn, self.show_mode_btn
         ):
             btn.setEnabled(False)
 
@@ -152,7 +164,7 @@ class Y4MPlayer(QWidget):
         for w in (
             self.frame_label, self.load_btn, self.play_btn, self.pause_btn,
             self.roi_btn, self.zoom_btn, self.reset_btn,
-            self.start_rec_btn, self.stop_rec_btn, self.show_y_btn
+            self.start_rec_btn, self.stop_rec_btn, self.show_mode_btn
         ):
             ctrl.addWidget(w)
 
@@ -170,7 +182,7 @@ class Y4MPlayer(QWidget):
         self.reset_btn.clicked.connect(self.clear_zoom)
         self.start_rec_btn.clicked.connect(self.start_recording)
         self.stop_rec_btn.clicked.connect(self.stop_recording)
-        self.show_y_btn.clicked.connect(self.toggle_y_view)
+        self.show_mode_btn.clicked.connect(self.toggle_y_view)
 
         # Playback timer
         self.timer = QTimer()
@@ -203,7 +215,7 @@ class Y4MPlayer(QWidget):
         for btn in (
             self.play_btn, self.pause_btn, self.roi_btn,
             self.zoom_btn, self.reset_btn, self.start_rec_btn,
-            self.show_y_btn
+            self.show_mode_btn
         ):
             btn.setEnabled(True)
         self.stop_rec_btn.setEnabled(False)
@@ -251,23 +263,41 @@ class Y4MPlayer(QWidget):
         arr = frame.to_ndarray(format='rgb24')
         h, w, _ = arr.shape
 
-        if self.show_y_mode or (hasattr(self, 'next_frame_buffer') and self.next_frame_buffer is not None):
+        if self.show_mode == Y_DIFF_MODE or (hasattr(self, 'next_frame_buffer') and self.next_frame_buffer is not None):
 
             # YUV difference
             yuv = frame.to_ndarray(format='yuv420p')
-            y = yuv[:h, :w]  # Y channel
+            y = yuv[0:h, :]  # Y channel
+            u = yuv[h:h + h // 4, :w // 2]
+            v = yuv[h + h // 4:, :w // 2]
+            u = cv2.resize(u, (w, h), interpolation=cv2.INTER_LINEAR)
+            v = cv2.resize(v, (w, h), interpolation=cv2.INTER_LINEAR)
 
             if hasattr(self, 'next_frame_buffer') and self.next_frame_buffer is not None:
                 next_yuv = self.next_frame_buffer.to_ndarray(format='yuv420p')
-                next_Y = next_yuv[:h, :w]
-                # Now you can compute frame diff, optical flow, etc. on Y and next_Y
+                next_y = next_yuv[0:h, :]
+                next_u = next_yuv[h:h + h // 4, :w // 2]
+                next_v = next_yuv[h + h // 4:, :w // 2]
+                next_u = cv2.resize(next_u, (w, h), interpolation=cv2.INTER_LINEAR)
+                next_v = cv2.resize(next_v, (w, h), interpolation=cv2.INTER_LINEAR)
+                # Now you can compute frame diff, optical flow, etc. on y and next_y
                 # Example:
-                diff = cv2.absdiff(y, next_Y)
-            else:
-                next_Y = None
 
-            if self.show_y_mode:
-                arr = np.stack([diff] * 3, axis=-1)
+                y_diff = cv2.absdiff(y, next_y)
+                u_diff = cv2.absdiff(u - 128, next_u - 128)
+                v_diff = cv2.absdiff(v - 128, next_v - 128)
+
+            else:
+                next_y = None
+                next_u = None
+                next_v = None
+
+            if self.show_mode == Y_DIFF_MODE:
+                arr = np.stack([y_diff] * 3, axis=-1)
+            elif self.show_mode == U_DIFF_MODE:
+                arr = np.stack([u_diff] * 3, axis=-1)
+            elif self.show_mode == V_DIFF_MODE:
+                arr = np.stack([v_diff] * 3, axis=-1)
             
         else:
             # Regular RGB display
@@ -385,8 +415,8 @@ class Y4MPlayer(QWidget):
 
     def toggle_y_view(self):
         """Toggle between RGB and Y (luma) display."""
-        self.show_y_mode = not self.show_y_mode
-        self.show_y_btn.setText("Hide Y Channel" if self.show_y_mode else "Show Y Channel")
+        self.show_mode = (self.show_mode + 1) % NUM_MODES
+        self.show_mode_btn.setText(mode_txt[self.show_mode])
         # Refresh current frame
         if self.current_frame is not None:
             self.update_display_frame(self.current_frame)
