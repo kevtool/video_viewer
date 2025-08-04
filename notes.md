@@ -1,7 +1,8 @@
 #### BUGS:
 
-- Rewind is very laggy
+- Rewind is very laggy on some videos
 - if the video reaches the end in Y-Diff mode, the tool crashes
+- forward and rewind doesn't work on some videos
 
 #### TODO:
 

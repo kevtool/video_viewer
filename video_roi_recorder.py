@@ -317,22 +317,21 @@ class Y4MPlayer(QWidget):
             y = yuv[0:h, :]  # Y channel
             u = yuv[h:h + h // 4, :w // 2]
             v = yuv[h + h // 4:, :w // 2]
-            u = cv2.resize(u, (w, h), interpolation=cv2.INTER_LINEAR)
-            v = cv2.resize(v, (w, h), interpolation=cv2.INTER_LINEAR)
+            u, v = [cv2.resize(ch, (w, h), interpolation=cv2.INTER_LINEAR) for ch in (u, v)]
 
             if hasattr(self, 'next_frame_buffer') and self.next_frame_buffer is not None:
                 next_yuv = self.next_frame_buffer.to_ndarray(format='yuv420p')
                 next_y = next_yuv[0:h, :]
                 next_u = next_yuv[h:h + h // 4, :w // 2]
                 next_v = next_yuv[h + h // 4:, :w // 2]
-                next_u = cv2.resize(next_u, (w, h), interpolation=cv2.INTER_LINEAR)
-                next_v = cv2.resize(next_v, (w, h), interpolation=cv2.INTER_LINEAR)
+                next_u, next_v = [cv2.resize(ch, (w, h), interpolation=cv2.INTER_LINEAR) for ch in (next_u, next_v)]
                 # Now you can compute frame diff, optical flow, etc. on y and next_y
                 # Example:
 
                 y_diff = cv2.absdiff(y, next_y)
-                u_diff = cv2.absdiff(u - 128, next_u - 128)
-                v_diff = cv2.absdiff(v - 128, next_v - 128)
+                u_diff = np.abs(u.astype(np.int16) - next_u).astype(np.uint8) * 10
+                v_diff = np.abs(v.astype(np.int16) - next_v).astype(np.uint8) * 10
+
 
             else:
                 next_y = None
