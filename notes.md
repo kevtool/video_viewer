@@ -1,11 +1,10 @@
 #### BUGS:
 
-- if the first frame of an example is less than 100 and the last frame is more than 100, then the sorting is not reliable and the video is cutoff
-
+- none
 
 #### TODO:
 
-- add functionality that records first frame and last frame of part of a video and cut it (video cutter)
+- none
 
 #### Video website
 https://media.xiph.org/video/derf/
