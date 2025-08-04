@@ -10,30 +10,36 @@ from pathlib import Path
 class Y4MVideoReader:
     def __init__(self, file_path):
         self.file_path = file_path
-        self.width, self.height, self.fps = self._parse_y4m_header()
-        self.frame_size = self.width * self.height * 3  # RGB format
-        self.pipe = self._start_ffmpeg_process()
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"Video file not found: {file_path}")
 
-    def _parse_y4m_header(self):
-        with open(self.file_path, 'rb') as f:
-            header = ''
-            while not header.endswith('\n'):
-                byte = f.read(1).decode('utf-8', errors='ignore')
-                if not byte:
-                    raise ValueError("Could not read Y4M header")
-                header += byte
+        self.width, self.height, self.fps = self._get_video_info()  # Uses ffprobe
+        self.frame_size = self.width * self.height * 3
+        self.pipe = None  # Delayed creation
 
-            match = re.match(r'YUV4MPEG2 W(\d+) H(\d+) F(\d+):(\d+) .*$', header)
-            if not match:
-                raise ValueError("Invalid Y4M header")
+    def _get_video_info(self):
+        cmd = [
+            'ffprobe',
+            '-v', 'error',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream=width,height,r_frame_rate',
+            '-of', 'csv=p=0', self.file_path
+        ]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        output = result.stdout.strip()
 
-            width = int(match.group(1))
-            height = int(match.group(2))
-            fps_numerator = int(match.group(3))
-            fps_denominator = int(match.group(4))
-            fps = fps_numerator / fps_denominator if fps_denominator else 30
+        width_str, height_str, fps_ratio = output.split(',')
+        width = int(width_str)
+        height = int(height_str)
 
-            return width, height, fps
+        # Parse "30000/1000" → 30.0
+        if '/' in fps_ratio:
+            num, den = map(int, fps_ratio.split('/'))
+            fps = num / den if den else 30.0
+        else:
+            fps = float(fps_ratio)
+
+        return width, height, fps
 
     def _start_ffmpeg_process(self, start_time_sec=None):
         command = [
@@ -49,8 +55,10 @@ class Y4MVideoReader:
             command.insert(2, str(start_time_sec))
         return subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-    def read_frames(self):
-        """Generator that yields each frame as a NumPy array (BGR)"""
+    def read_frames(self, start_frame_num=0):
+        start_time_sec = start_frame_num / self.fps if self.fps > 0 else 0
+        self.pipe = self._start_ffmpeg_process(start_time_sec)
+
         while True:
             raw_frame = self.pipe.stdout.read(self.frame_size)
             if len(raw_frame) != self.frame_size:
@@ -64,117 +72,348 @@ class Y4MVideoReader:
     
     def get_frame_count(self):
         """
-        Returns the total number of frames in the Y4M video using ffprobe.
+        Returns the total number of frames in the video using ffprobe.
+        
+        This method first tries to count the number of video packets using ffprobe,
+        which gives an accurate frame count for most formats.
+        
+        If that fails (e.g., due to format limitations), it falls back to estimating
+        the frame count using the video's duration and frame rate.
+        
+        Returns:
+            int: Total number of frames in the video.
+        
+        Raises:
+            ValueError: If neither packet count nor duration can be retrieved.
         """
-        import subprocess
-        import re
-
-        cmd = [
+        # Step 1: Try to get exact frame count using packet counting
+        # This is the most accurate method when supported by the container.
+        cmd_packet_count = [
             'ffprobe',
-            '-v', 'error',
-            '-select_streams', 'v:0',
-            '-count_packets',
-            '-show_entries', 'stream=nb_read_packets',
-            '-of', 'csv=p=0',
-            self.file_path
+            '-v', 'error',                           # Suppress verbose output
+            '-select_streams', 'v:0',                # Select the first video stream
+            '-count_packets',                        # Count all packets in the stream
+            '-show_entries', 'stream=nb_read_packets',  # Output only the packet count
+            '-of', 'csv=p=0',                        # Output as raw value (no headers)
+            self.file_path                           # Input file path
         ]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        result = subprocess.run(
+            cmd_packet_count,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True  # Return strings, not bytes
+        )
 
         output = result.stdout.strip()
-        if not output or not re.match(r'^\d+$', output):
-            # Fallback: count 'FRAME' headers manually
-            return self._count_frames_fallback()
 
-        return int(output)
+        # Check if output is a valid integer string
+        if output.isdigit():
+            return int(output)
+
+        # If packet count failed, log warning and fall back to duration-based estimate
+        print("Warning: Could not get exact frame count via packet counting. "
+            "Falling back to duration-based estimation.")
+
+        # Step 2: Fallback — Estimate frame count using duration and FPS
+        cmd_duration = [
+            'ffprobe',
+            '-v', 'error',                   # Suppress unnecessary output
+            '-show_entries', 'format=duration',  # Get the total duration
+            '-of', 'csv=p=0',               # Output only the value
+            self.file_path                  # Input file
+        ]
+
+        result = subprocess.run(
+            cmd_duration,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        duration_output = result.stdout.strip()
+
+        try:
+            duration = float(duration_output)
+            estimated_frame_count = int(duration * self.fps)
+            return estimated_frame_count
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"Could not determine video duration or calculate frame count for '{self.file_path}'. "
+                "Ensure the file is a valid video and ffprobe is installed."
+            ) from e
 
     def play(self, resize_factor=0.3, start_frame_num=0):
+        """
+        Play the video starting from a specified frame number.
+        
+        This method uses ffmpeg to decode frames starting from the approximate time
+        corresponding to the given frame number. It displays each frame using OpenCV,
+        with a frame counter overlaid. Playback speed matches the original FPS.
+        
+        Press 'q' to quit playback early.
+        
+        Args:
+            resize_factor (float): Scaling factor to resize the video window (e.g., 0.3 = 30% size).
+            start_frame_num (int): Frame number to start playback from (0-indexed).
+        
+        Raises:
+            RuntimeError: If video cannot be decoded or display fails.
+        """
+        # Validate input
+        if resize_factor <= 0:
+            raise ValueError("resize_factor must be greater than 0")
+        if start_frame_num < 0:
+            raise ValueError("start_frame_num must be non-negative")
+
         try:
-            # Recalculate start time in seconds
-            start_time = start_frame_num / self.fps if self.fps > 0 else 0
+            # Calculate start time in seconds based on frame number and FPS
+            if self.fps > 0:
+                start_time_sec = start_frame_num / self.fps
+            else:
+                start_time_sec = 0.0  # Default to beginning if FPS is invalid
 
-            # Restart ffmpeg process from desired time
-            self.pipe = self._start_ffmpeg_process(start_time)
+            # OpenCV window for playback
+            cv2.namedWindow('Video Player', cv2.WINDOW_AUTOSIZE)
 
-            # Re-initialize the frame reader using the new pipe
-            frames = self.read_frames()
+            # Use the improved read_frames method which handles seeking internally
+            frame_generator = self.read_frames(start_frame_num=start_frame_num)
 
-            # Re-read frames now starting from the new offset
-            for idx, frame in enumerate(frames, start=start_frame_num + 1):
-                cv2.putText(frame, f"Frame: {idx}", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                resized = cv2.resize(frame, None, fx=resize_factor, fy=resize_factor)
-                cv2.imshow('Y4M Player', resized)
-                key = cv2.waitKey(int(1000 / self.fps)) & 0xFF
+            # Start playing frames
+            for frame_index, frame in enumerate(frame_generator, start=start_frame_num + 1):
+                # Add frame counter text overlay
+                cv2.putText(
+                    img=frame,
+                    text=f"Frame: {frame_index}",
+                    org=(10, 30),  # Position: (x, y)
+                    fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=1,
+                    color=(0, 255, 0),  # Green
+                    thickness=2,
+                    lineType=cv2.LINE_AA
+                )
+
+                # Resize frame for display (optional, for smaller windows)
+                resized_frame = cv2.resize(frame, None, fx=resize_factor, fy=resize_factor)
+
+                # Show the frame
+                cv2.imshow('Video Player', resized_frame)
+
+                # Wait approximately the correct time between frames (in milliseconds)
+                delay_ms = int(1000 / self.fps)  # E.g., 33ms for 30fps
+                if delay_ms < 1:
+                    delay_ms = 1  # Avoid zero or negative delay
+
+                # Wait for keypress; check if 'q' was pressed to exit
+                key = cv2.waitKey(delay_ms) & 0xFF
                 if key == ord('q'):
+                    print("Playback stopped by user (pressed 'q').")
                     break
+
+        except Exception as e:
+            raise RuntimeError(f"Error during video playback: {e}") from e
+
         finally:
+            # Ensure resources are cleaned up even if an error occurs
             self.close()
             cv2.destroyAllWindows()
 
     def extract_roi(self, frame_num, roi_rect, zoom_factor=2, save_path=None, show=True):
+        """
+        Extract and optionally display or save a Region of Interest (ROI) from a specific frame.
+        
+        Args:
+            frame_num (int): The frame number (0-indexed) to extract.
+            roi_rect (tuple): Region of interest as (x, y, width, height).
+            zoom_factor (float): Zoom multiplier for displaying the ROI (e.g., 2 = 2x size).
+            save_path (str or None): If provided, save the ROI image to this path.
+            show (bool): If True, display the ROI in a window until a key is pressed.
+        
+        Raises:
+            ValueError: If ROI is out of bounds or invalid.
+            RuntimeError: If frame could not be read.
+        """
         x, y, w, h = roi_rect
+
+        # Input validation
+        if not all(isinstance(v, int) and v >= 0 for v in [x, y, w, h]):
+            raise ValueError("ROI coordinates and dimensions must be non-negative integers")
+        if x + w > self.width or y + h > self.height:
+            raise ValueError(f"ROI {roi_rect} exceeds video resolution {self.width}x{self.height}")
+        if zoom_factor <= 0:
+            raise ValueError("zoom_factor must be positive")
+
         try:
-            # Calculate time offset
-            start_time = frame_num / self.fps if self.fps > 0 else 0
+            # Calculate start time for seeking
+            start_time_sec = frame_num / self.fps if self.fps > 0 else 0.0
 
-            # Restart ffmpeg with seek
-            self.pipe = self._start_ffmpeg_process(start_time)
+            # Use read_frames with seeking to jump close to target frame
+            frame_generator = self.read_frames(start_frame_num=frame_num)
 
-            # Get the first frame after seeking
-            frames = self.read_frames()
-            for idx, frame in enumerate(frames, start=frame_num):  # assume we get frame_num directly
-                # Display ROI
-                roi = frame[y:y+h, x:x+w]
+            # Read only the first frame (should be the target frame or very close)
+            try:
+                frame = next(frame_generator)
+            except StopIteration:
+                raise RuntimeError(f"Could not read frame {frame_num}. Possibly out of range.")
 
-                if show:
-                    resized = cv2.resize(roi, None, fx=zoom_factor, fy=zoom_factor)
-                    cv2.imshow(f"ROI - Frame {frame_num}", resized)
-                    print(f"Displayed ROI of frame {frame_num}")
-                    cv2.waitKey(0)
+            # Extract the ROI (region of interest)
+            roi = frame[y:y+h, x:x+w].copy()  # Use .copy() to ensure contiguous array
 
-                if save_path:
-                    cv2.imwrite(save_path, roi)
-                    print(f"Saved ROI frame {frame_num} to: {save_path}")
-                
-                break
+            # Optionally display the ROI (zoomed in)
+            if show:
+                zoomed_width = int(w * zoom_factor)
+                zoomed_height = int(h * zoom_factor)
+                resized_roi = cv2.resize(roi, (zoomed_width, zoomed_height), interpolation=cv2.INTER_LINEAR)
+                window_title = f"ROI - Frame {frame_num}"
+                cv2.imshow(window_title, resized_roi)
+                print(f"Displayed ROI of frame {frame_num}: {w}x{h} pixels (zoomed {zoom_factor}x)")
+                cv2.waitKey(0)  # Wait until any key is pressed
+                cv2.destroyWindow(window_title)
+
+            # Optionally save ROI to disk
+            if save_path is not None:
+                try:
+                    success = cv2.imwrite(save_path, roi)
+                    if success:
+                        print(f"Saved ROI from frame {frame_num} to: {save_path}")
+                    else:
+                        raise RuntimeError(f"Failed to save image to {save_path}")
+                except Exception as e:
+                    raise RuntimeError(f"Error saving ROI image: {e}") from e
+
+        except Exception as e:
+            raise RuntimeError(f"Error in extract_roi: {e}") from e
+
         finally:
+            # Always clean up
             self.close()
-            cv2.destroyAllWindows()
+            if not show:
+                cv2.destroyAllWindows()
 
     def visualize_roi_on_frame(self, frame_num, roi_rect, save_path=None, show=True):
+        """
+        Display the full frame with a rectangle drawn around the specified Region of Interest (ROI).
+        
+        This helps visualize where the ROI is located in the context of the entire frame.
+        
+        Args:
+            frame_num (int): The frame number (0-indexed) to visualize.
+            roi_rect (tuple): Region of interest as (x, y, width, height).
+            save_path (str or None): If provided, save the annotated frame to this path.
+            show (bool): If True, display the annotated frame in a window.
+        
+        Raises:
+            ValueError: If ROI is invalid or out of bounds.
+            RuntimeError: If frame cannot be read or saved.
+        """
         x, y, w, h = roi_rect
+
+        # Input validation
+        if not all(isinstance(v, int) and v >= 0 for v in [x, y, w, h]):
+            raise ValueError("ROI coordinates and dimensions must be non-negative integers")
+        if x + w > self.width or y + h > self.height:
+            raise ValueError(f"ROI {roi_rect} exceeds video resolution {self.width}x{self.height}")
+
         try:
-            # Calculate time offset for seeking
-            start_time = frame_num / self.fps if self.fps > 0 else 0
+            # Calculate start time for seeking
+            start_time_sec = frame_num / self.fps if self.fps > 0 else 0.0
 
-            # Restart ffmpeg with seek to target frame
-            self.pipe = self._start_ffmpeg_process(start_time)
+            # Use read_frames with seeking
+            frame_generator = self.read_frames(start_frame_num=frame_num)
 
-            # Read the first frame after seeking
-            frames = self.read_frames()
-            for idx, frame in enumerate(frames, start=frame_num):
-                # Draw ROI rectangle on the frame
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)  # Green box, thickness 2
-                cv2.putText(frame, f"Frame: {idx}", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            # Get the target frame
+            try:
+                frame = next(frame_generator)
+            except StopIteration:
+                raise RuntimeError(f"Could not read frame {frame_num}. Possibly out of range.")
 
-                if show:
-                    cv2.imshow(f"Full Frame with ROI - Frame {frame_num}", frame)
-                    print(f"Displayed full frame with ROI boundary for frame {frame_num}")
-                    cv2.waitKey(0)  # Wait until keypress
+            # Draw green rectangle around ROI
+            cv2.rectangle(
+                img=frame,
+                pt1=(x, y),
+                pt2=(x + w, y + h),
+                color=(0, 255, 0),  # Green in BGR
+                thickness=2
+            )
 
-                if save_path:
-                    cv2.imwrite(save_path, frame)
-                    print(f"Saved full frame with ROI to: {save_path}")
+            # Overlay frame number
+            cv2.putText(
+                img=frame,
+                text=f"Frame: {frame_num}",
+                org=(10, 30),
+                fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                fontScale=1,
+                color=(0, 255, 0),
+                thickness=2,
+                lineType=cv2.LINE_AA
+            )
 
-                break  # Only process one frame
+            # Optionally display the full annotated frame
+            if show:
+                window_title = f"Full Frame with ROI - Frame {frame_num}"
+                cv2.imshow(window_title, frame)
+                print(f"Displayed full frame with ROI boundary for frame {frame_num}")
+                cv2.waitKey(0)  # Wait for keypress
+                cv2.destroyWindow(window_title)
+
+            # Optionally save the annotated frame
+            if save_path is not None:
+                try:
+                    success = cv2.imwrite(save_path, frame)
+                    if success:
+                        print(f"Saved full frame with ROI to: {save_path}")
+                    else:
+                        raise RuntimeError(f"Failed to save annotated frame to {save_path}")
+                except Exception as e:
+                    raise RuntimeError(f"Error saving annotated frame: {e}") from e
+
+        except Exception as e:
+            raise RuntimeError(f"Error in visualize_roi_on_frame: {e}") from e
+
         finally:
+            # Always clean up
             self.close()
-            cv2.destroyAllWindows()
+            if not show:
+                cv2.destroyAllWindows()
 
     def close(self):
-        self.pipe.stdout.close()
-        self.pipe.terminate()
+        """
+        Safely terminate the ffmpeg subprocess and release all resources.
+        
+        This method ensures that:
+        - The stdout pipe is closed.
+        - The ffmpeg process is terminated.
+        - The process is waited for to prevent zombie processes.
+        - The pipe reference is cleared.
+        
+        Can be called multiple times safely.
+        """
+        if self.pipe is None:
+            return  # Already closed or never started
+
+        try:
+            # Close the stdout pipe to signal EOF
+            if self.pipe.stdout:
+                self.pipe.stdout.close()
+        except (OSError, AttributeError):
+            pass  # Ignore errors during close
+
+        try:
+            # Terminate the ffmpeg process
+            if self.pipe.poll() is None:  # Still running
+                self.pipe.terminate()
+                try:
+                    # Wait up to 5 seconds for clean exit
+                    self.pipe.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    # Force kill if it doesn't respond
+                    print("Warning: ffmpeg did not terminate gracefully, forcing kill.")
+                    self.pipe.kill()
+                    self.pipe.wait()  # Final wait after kill
+        except (OSError, subprocess.TimeoutExpired):
+            pass  # Ignore errors during termination
+        finally:
+            self.pipe = None  # Clear reference
 
     def __enter__(self):
         return self
@@ -321,4 +560,4 @@ if __name__ == "__main__":
 
     # with Y4MVideoReader(file) as reader:
     #     reader.visualize_roi_on_frame(frame_num=100, roi_rect=(3300, 900, 600, 600), save_path="test.png")
-    save_roi_contexts(category='texture_loss_dynamic', neighboring_frames=10, force_regen=True, generate_video=True)
+    save_roi_contexts(category='motion_blur', neighboring_frames=10, force_regen=True, generate_video=True)
