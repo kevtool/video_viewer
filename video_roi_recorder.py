@@ -1,4 +1,4 @@
-import sys, os
+import sys, os, time
 import json
 import cv2
 import av
@@ -115,6 +115,7 @@ class Y4MPlayer(QWidget):
         self.roi_mode = False
         self.recording = False
         self.writer = None
+        self.writer_full = None
         self.record_start_frame = None
         self.record_end_frame = None
         self.show_mode = ORIGINAL_MODE
@@ -289,8 +290,15 @@ class Y4MPlayer(QWidget):
             bgr = self.current_frame.to_ndarray(format='bgr24')
             x0, y0 = self.video_label.topleft
             x1, y1 = self.video_label.bottomright
+
+            # Cropped ROI
             crop = bgr[y0:y1, x0:x1]
             self.writer.write(crop)
+
+            # Full frame with rectangle
+            bgr_with_box = bgr.copy()
+            cv2.rectangle(bgr_with_box, (x0, y0), (x1, y1), (0, 255, 0), 2)
+            self.writer_full.write(bgr_with_box)
 
         self.update_display_frame(self.current_frame)
 
@@ -414,7 +422,8 @@ class Y4MPlayer(QWidget):
             return
 
         base = Path(self.container.name).stem
-        out = os.path.join(self.save_folder, f"{base}_clip.mp4")
+        self.basename = f"{base}_{int(time.time())}"
+        out = os.path.join(self.save_folder, f"{self.basename}_roi.mp4")
         x0, y0 = self.video_label.topleft
         x1, y1 = self.video_label.bottomright
         w_rect, h_rect = x1 - x0, y1 - y0
@@ -425,6 +434,18 @@ class Y4MPlayer(QWidget):
             self.fps,
             (w_rect, h_rect)
         )
+
+        out_full = os.path.join(self.save_folder, f"{self.basename}_context.mp4")
+        frame_w = self.current_frame.width
+        frame_h = self.current_frame.height
+
+        self.writer_full = cv2.VideoWriter(
+            out_full,
+            cv2.VideoWriter_fourcc(*'mp4v'),
+            self.fps,
+            (frame_w, frame_h)
+        )
+
         self.recording = True
         self.record_start_frame = self.global_frame_number
         print(f"[INFO] Recording to {out} from frame {self.record_start_frame}")
@@ -434,7 +455,10 @@ class Y4MPlayer(QWidget):
     def stop_recording(self):
         """Stop recording and save metadata JSON."""
         self.recording = False
-        self.writer.release()
+        if self.writer:
+            self.writer.release()
+        if self.writer_full:
+            self.writer_full.release()
         self.record_end_frame = self.global_frame_number
 
         meta = {
@@ -444,7 +468,7 @@ class Y4MPlayer(QWidget):
             'topleft': self.video_label.topleft,
             'bottomright': self.video_label.bottomright
         }
-        jf = os.path.join(self.save_folder, f"{Path(self.container.name).stem}_clip.json")
+        jf = os.path.join(self.save_folder, f"{self.basename}_roi.json")
         with open(jf, 'w') as f:
             json.dump(meta, f, indent=2)
 
@@ -470,6 +494,6 @@ class Y4MPlayer(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    player = Y4MPlayer(save_folder='dataset')
+    player = Y4MPlayer(save_folder='dataset/perceptual_temporal_noise')
     player.show()  # keep the overall window size unchanged
     sys.exit(app.exec_())
