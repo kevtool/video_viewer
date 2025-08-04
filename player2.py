@@ -86,6 +86,7 @@ class Y4MPlayer(QWidget):
         self.zoom_in_btn = QPushButton("Zoom In (+)")
         self.zoom_out_btn = QPushButton("Zoom Out (-)")
         self.reset_zoom_btn = QPushButton("Reset Zoom")
+        self.y_diff_btn = QPushButton("Show Y-Diff")
 
         # Scroll Area for video label
         self.scroll_area = QScrollArea()
@@ -127,6 +128,7 @@ class Y4MPlayer(QWidget):
         control_layout.addWidget(self.zoom_out_btn)
         control_layout.addWidget(self.reset_zoom_btn)
         control_layout.addWidget(self.record_roi_btn)
+        control_layout.addWidget(self.y_diff_btn)
 
         main_layout.addWidget(control_panel, stretch=0)
 
@@ -141,6 +143,7 @@ class Y4MPlayer(QWidget):
         self.zoom_out_btn.clicked.connect(self.zoom_out)
         self.reset_zoom_btn.clicked.connect(self.reset_zoom)
         self.record_roi_btn.clicked.connect(self.recordROI)
+        self.y_diff_btn.clicked.connect(self.show_y_diff)
 
         # timer
         self.timer = QTimer()
@@ -148,6 +151,9 @@ class Y4MPlayer(QWidget):
 
         # savefile
         self.savefile = savefile
+
+        # yuv difference
+        self.show_y_diff_mode = False
 
     def load_video(self):
         filename, _ = QFileDialog.getOpenFileName(
@@ -172,7 +178,6 @@ class Y4MPlayer(QWidget):
                 self.current_time_sec = 0.0
                 self.frame_counter_label.setText(f"Frame: {self.global_frame_number}")
                 self.total_duration = self.video_stream.duration * float(self.video_stream.time_base)
-                print(self.total_duration)
                 self.timer.start(self.frame_interval)
                 self.play_pause_btn.setText("Pause")
                 # Set original size for correct mapping
@@ -180,6 +185,8 @@ class Y4MPlayer(QWidget):
                 self.video_label.set_original_size(first_frame.width, first_frame.height)
                 self.update_display_frame(first_frame)
                 self.frame_iter = self.container.decode(video=0)  # Reset iterator
+                self.yuv_frames = self.extract_yuv_data()
+                print(self.yuv_frames)
             except Exception as e:
                 print("Error loading file:", e)
 
@@ -307,9 +314,10 @@ class Y4MPlayer(QWidget):
                     y_plane = np.array(frame.planes[0])  # Y (full resolution)
                     u_plane = np.array(frame.planes[1])  # U (half width/height for 4:2:0)
                     v_plane = np.array(frame.planes[2])  # V (half width/height for 4:2:0)
-
-                    height, width = y_plane.shape
+                    
+                    height, width = frame.height, frame.width
                     chroma_height, chroma_width = u_plane.shape
+                    # chroma_height, chroma_width = height // 2, width // 2
 
                     yuv_frames.append({
                         'y': y_plane,
@@ -337,6 +345,11 @@ class Y4MPlayer(QWidget):
 
         print(f"Extracted {len(yuv_frames)} YUV frame(s).")
         return yuv_frames
+    
+    def show_y_diff(self):
+        print(self.yuv_frames, self.global_frame_number)
+        current_frame_y = self.yuv_frames[self.global_frame_number]['y']
+        next_frame_y = self.yuv_frames[self.global_frame_number+1]['y']
 
     def seek_video(self, seconds):
         if self.container is None:
