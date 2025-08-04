@@ -145,7 +145,9 @@ class Y4MPlayer(QWidget):
         self.frame_label   = QLabel("Frame: 0")
         self.load_btn      = QPushButton("Load Video")
         self.play_btn      = QPushButton("Play")
-        self.pause_btn     = QPushButton("Pause")
+        # self.pause_btn     = QPushButton("Pause")
+        self.rewind_btn  = QPushButton("<< Rewind")
+        self.forward_btn = QPushButton("Forward >>")
         self.roi_btn       = QPushButton("Record ROI")
         self.zoom_btn      = QPushButton("Show ROI Zoom")
         self.reset_btn     = QPushButton("Reset Zoom")
@@ -154,15 +156,15 @@ class Y4MPlayer(QWidget):
         self.show_mode_btn = QPushButton(mode_txt[self.show_mode])
 
         for btn in (
-            self.play_btn, self.pause_btn, self.roi_btn,
-            self.zoom_btn, self.reset_btn,
+            self.play_btn, self.rewind_btn, self.forward_btn,
+            self.roi_btn, self.zoom_btn, self.reset_btn,
             self.start_rec_btn, self.stop_rec_btn, self.show_mode_btn
         ):
             btn.setEnabled(False)
 
         ctrl = QHBoxLayout()
         for w in (
-            self.frame_label, self.load_btn, self.play_btn, self.pause_btn,
+            self.frame_label, self.load_btn, self.play_btn, self.rewind_btn, self.forward_btn,
             self.roi_btn, self.zoom_btn, self.reset_btn,
             self.start_rec_btn, self.stop_rec_btn, self.show_mode_btn
         ):
@@ -175,8 +177,10 @@ class Y4MPlayer(QWidget):
 
         # Connect signals
         self.load_btn.clicked.connect(self.load_video)
-        self.play_btn.clicked.connect(self.play)
-        self.pause_btn.clicked.connect(self.pause)
+        self.play_btn.clicked.connect(self.toggle_play_pause)
+        # self.pause_btn.clicked.connect(self.pause)
+        self.rewind_btn.clicked.connect(lambda: self.jump_frames(-30))   # ~1 sec backward if fps=30
+        self.forward_btn.clicked.connect(lambda: self.jump_frames(30))
         self.roi_btn.clicked.connect(self.enable_roi)
         self.zoom_btn.clicked.connect(self.show_zoom_subwindow)
         self.reset_btn.clicked.connect(self.clear_zoom)
@@ -213,28 +217,63 @@ class Y4MPlayer(QWidget):
         # reset iterator and enable controls
         self.frame_iter = self.container.decode(video=0)
         for btn in (
-            self.play_btn, self.pause_btn, self.roi_btn,
-            self.zoom_btn, self.reset_btn, self.start_rec_btn,
+            self.play_btn, self.rewind_btn, self.forward_btn, 
+            self.roi_btn, self.zoom_btn, self.reset_btn, self.start_rec_btn,
             self.show_mode_btn
         ):
             btn.setEnabled(True)
         self.stop_rec_btn.setEnabled(False)
 
-    def play(self):
-        """Start playback."""
-        if self.container:
+    def toggle_play_pause(self):
+        """Toggle between playing and pausing the video."""
+        if not self.container:
+            return
+
+        if self.is_playing:
+            # Pause
+            self.is_playing = False
+            self.timer.stop()
+            self.play_btn.setText("Play")
+        else:
+            # Play
             self.is_playing = True
             self.timer.start(self.frame_interval)
+            self.play_btn.setText("Pause")
 
-    def pause(self):
-        """Pause playback."""
-        self.is_playing = False
-        self.timer.stop()
+    def jump_frames(self, offset):
+        """
+        Jump forward or backward in the video by `offset` frames.
+        Positive = forward, Negative = backward.
+        """
+        if not self.container or self.current_frame is None:
+            return
+
+        target_frame = max(0, self.global_frame_number + offset)
+        target_pts = int(target_frame / self.fps * av.time_base)  # convert to pts
+
+        # Seek close to the target
+        self.container.seek(int(target_frame / self.fps * self.video_stream.time_base.denominator),
+                            any_frame=False, backward=offset < 0, stream=self.video_stream)
+
+        # Restart decoding from seek point
+        self.frame_iter = self.container.decode(video=0)
+
+        # Skip until target_frame is reached
+        for frame in self.frame_iter:
+            self.global_frame_number = int(round(frame.time * self.fps))
+            if self.global_frame_number >= target_frame:
+                self.current_frame = frame
+                try:
+                    self.next_frame_buffer = next(self.frame_iter)
+                except StopIteration:
+                    self.next_frame_buffer = None
+                self.update_display_frame(self.current_frame)
+                break
 
     def next_frame(self):
         """Advance one frame, record if active, then render update."""
         if self.next_frame_buffer is None:
-            self.pause()
+            self.toggle_play_pause()
             return
     
         self.current_frame = self.next_frame_buffer
