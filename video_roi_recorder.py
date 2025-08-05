@@ -1,4 +1,4 @@
-import sys, os, time
+import sys, os, time, subprocess
 import json
 import cv2
 import av
@@ -118,6 +118,7 @@ class Y4MPlayer(QWidget):
         self.writer_full = None
         self.record_start_frame = None
         self.record_end_frame = None
+        self.output_format = 'y4m'
         self.show_mode = ORIGINAL_MODE
         self.next_frame_buffer = None
 
@@ -147,19 +148,20 @@ class Y4MPlayer(QWidget):
         self.load_btn      = QPushButton("Load Video")
         self.play_btn      = QPushButton("Play")
         # self.pause_btn     = QPushButton("Pause")
-        self.rewind_btn  = QPushButton("<< Rewind")
-        self.forward_btn = QPushButton("Forward >>")
+        self.rewind_btn    = QPushButton("<< Rewind")
+        self.forward_btn   = QPushButton("Forward >>")
         self.roi_btn       = QPushButton("Record ROI")
         self.zoom_btn      = QPushButton("Show ROI Zoom")
         self.reset_btn     = QPushButton("Reset Zoom")
         self.start_rec_btn = QPushButton("Start Recording")
         self.stop_rec_btn  = QPushButton("Stop Recording")
+        self.sw_format_btn = QPushButton("Output: Y4M")
         self.show_mode_btn = QPushButton(mode_txt[self.show_mode])
 
         for btn in (
             self.play_btn, self.rewind_btn, self.forward_btn,
             self.roi_btn, self.zoom_btn, self.reset_btn,
-            self.start_rec_btn, self.stop_rec_btn, self.show_mode_btn
+            self.start_rec_btn, self.stop_rec_btn, self.sw_format_btn, self.show_mode_btn
         ):
             btn.setEnabled(False)
 
@@ -167,7 +169,7 @@ class Y4MPlayer(QWidget):
         for w in (
             self.frame_label, self.load_btn, self.play_btn, self.rewind_btn, self.forward_btn,
             self.roi_btn, self.zoom_btn, self.reset_btn,
-            self.start_rec_btn, self.stop_rec_btn, self.show_mode_btn
+            self.start_rec_btn, self.stop_rec_btn, self.sw_format_btn, self.show_mode_btn
         ):
             ctrl.addWidget(w)
 
@@ -187,6 +189,7 @@ class Y4MPlayer(QWidget):
         self.reset_btn.clicked.connect(self.clear_zoom)
         self.start_rec_btn.clicked.connect(self.start_recording)
         self.stop_rec_btn.clicked.connect(self.stop_recording)
+        self.sw_format_btn.clicked.connect(self.switch_format)
         self.show_mode_btn.clicked.connect(self.toggle_y_view)
 
         # Playback timer
@@ -219,7 +222,7 @@ class Y4MPlayer(QWidget):
         self.frame_iter = self.container.decode(video=0)
         for btn in (
             self.play_btn, self.rewind_btn, self.forward_btn, 
-            self.roi_btn, self.zoom_btn, self.reset_btn, self.start_rec_btn,
+            self.roi_btn, self.zoom_btn, self.reset_btn, self.start_rec_btn, self.sw_format_btn,
             self.show_mode_btn
         ):
             btn.setEnabled(True)
@@ -293,12 +296,18 @@ class Y4MPlayer(QWidget):
 
             # Cropped ROI
             crop = bgr[y0:y1, x0:x1]
-            self.writer.write(crop)
+            if self.output_format == 'mp4':
+                self.writer.write(crop)
+            elif self.output_format == 'y4m':
+                self.proc_roi.stdin.write(crop.tobytes())
 
             # Full frame with rectangle
             bgr_with_box = bgr.copy()
             cv2.rectangle(bgr_with_box, (x0, y0), (x1, y1), (0, 255, 0), 2)
-            self.writer_full.write(bgr_with_box)
+            if self.output_format == 'mp4':
+                self.writer_full.write(bgr_with_box)
+            elif self.output_format == 'y4m':
+                self.proc_full.stdin.write(bgr_with_box.tobytes())
 
         self.update_display_frame(self.current_frame)
 
@@ -415,58 +424,118 @@ class Y4MPlayer(QWidget):
         self.zoom_label.clear()
 
     def start_recording(self):
-        """Begin recording cropped ROI video."""
+        """Begin recording cropped ROI and full context, either as MP4 or Y4M."""
         if not self.video_label.topleft:
             QMessageBox.warning(self, "No ROI", "Draw an ROI before recording.")
             return
 
         base = Path(self.container.name).stem
         self.basename = f"{base}_{int(time.time())}"
-        out = os.path.join(self.save_folder, f"{self.basename}_roi.mp4")
+
         x0, y0 = self.video_label.topleft
         x1, y1 = self.video_label.bottomright
         w_rect, h_rect = x1 - x0, y1 - y0
 
-        self.writer = cv2.VideoWriter(
-            out,
-            cv2.VideoWriter_fourcc(*'mp4v'),
-            self.fps,
-            (w_rect, h_rect)
-        )
-
-        out_full = os.path.join(self.save_folder, f"{self.basename}_context.mp4")
         frame_w = self.current_frame.width
         frame_h = self.current_frame.height
 
-        self.writer_full = cv2.VideoWriter(
-            out_full,
-            cv2.VideoWriter_fourcc(*'mp4v'),
-            self.fps,
-            (frame_w, frame_h)
-        )
+        # Paths
+        roi_ext = self.output_format
+        full_ext = self.output_format
+        out_roi = os.path.join(self.save_folder, f"{self.basename}_roi.{roi_ext}")
+        out_full = os.path.join(self.save_folder, f"{self.basename}_context.{full_ext}")
 
-        self.recording = True
+        self.out_roi_path = out_roi
+        self.out_full_path = out_full
+
         self.record_start_frame = self.global_frame_number
-        print(f"[INFO] Recording to {out} from frame {self.record_start_frame}")
+        self.recording = True
+
+        # --- MP4: Use OpenCV VideoWriter ---
+        if self.output_format == 'mp4':
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+
+            self.writer = cv2.VideoWriter(out_roi, fourcc, self.fps, (w_rect, h_rect))
+            self.writer_full = cv2.VideoWriter(out_full, fourcc, self.fps, (frame_w, frame_h))
+
+            if not self.writer or not self.writer_full:
+                QMessageBox.critical(self, "Error", "Failed to initialize MP4 video writers.")
+                self.recording = False
+                return
+
+        # --- Y4M: Use FFmpeg subprocess ---
+        elif self.output_format == 'y4m':
+            cmd_roi = [
+                'ffmpeg',
+                '-y',
+                '-f', 'rawvideo',
+                '-pix_fmt', 'bgr24',
+                '-s', f'{w_rect}x{h_rect}',
+                '-r', str(self.fps),
+                '-i', '-',
+                '-pix_fmt', 'yuv420p',
+                '-f', 'yuv4mpegpipe',
+                out_roi
+            ]
+            self.proc_roi = subprocess.Popen(cmd_roi, stdin=subprocess.PIPE)
+
+            cmd_full = [
+                'ffmpeg',
+                '-y',
+                '-f', 'rawvideo',
+                '-pix_fmt', 'bgr24',
+                '-s', f'{frame_w}x{frame_h}',
+                '-r', str(self.fps),
+                '-i', '-',
+                '-pix_fmt', 'yuv420p',
+                '-f', 'yuv4mpegpipe',
+                out_full
+            ]
+            self.proc_full = subprocess.Popen(cmd_full, stdin=subprocess.PIPE)
+
+        else:
+            QMessageBox.critical(self, "Error", f"Unsupported format: {self.output_format}")
+            self.recording = False
+            return
+
+        print(f"[INFO] Recording to {out_roi} and {out_full} from frame {self.record_start_frame}")
         self.start_rec_btn.setEnabled(False)
         self.stop_rec_btn.setEnabled(True)
+        self.sw_format_btn.setEnabled(False)
 
     def stop_recording(self):
         """Stop recording and save metadata JSON."""
         self.recording = False
-        if self.writer:
-            self.writer.release()
-        if self.writer_full:
-            self.writer_full.release()
         self.record_end_frame = self.global_frame_number
 
+        # --- MP4: Release OpenCV writers ---
+        if self.output_format == 'mp4':
+            if hasattr(self, 'writer') and self.writer:
+                self.writer.release()
+            if hasattr(self, 'writer_full') and self.writer_full:
+                self.writer_full.release()
+
+        # --- Y4M: Close FFmpeg stdin and wait ---
+        elif self.output_format == 'y4m':
+            if hasattr(self, 'proc_roi') and self.proc_roi and self.proc_roi.stdin:
+                self.proc_roi.stdin.close()
+                self.proc_roi.wait()
+            if hasattr(self, 'proc_full') and self.proc_full and self.proc_full.stdin:
+                self.proc_full.stdin.close()
+                self.proc_full.wait()
+
+        # Save metadata
         meta = {
             'video_file': self.container.name,
             'start_frame': self.record_start_frame,
             'end_frame': self.record_end_frame,
             'topleft': self.video_label.topleft,
-            'bottomright': self.video_label.bottomright
+            'bottomright': self.video_label.bottomright,
+            'roi_video': self.out_roi_path,
+            'context_video': self.out_full_path,
+            'format': self.output_format
         }
+
         jf = os.path.join(self.save_folder, f"{self.basename}_roi.json")
         with open(jf, 'w') as f:
             json.dump(meta, f, indent=2)
@@ -474,6 +543,18 @@ class Y4MPlayer(QWidget):
         print(f"[INFO] Saved metadata to {jf}")
         self.start_rec_btn.setEnabled(True)
         self.stop_rec_btn.setEnabled(False)
+        self.sw_format_btn.setEnabled(True)
+
+    def switch_format(self):
+        """Switch output format between Y4M and MP4"""
+        if self.output_format == 'mp4':
+            self.output_format = 'y4m'
+            self.sw_format_btn.setText('Output: Y4M')
+        elif self.output_format == 'y4m':
+            self.output_format = 'mp4'
+            self.sw_format_btn.setText('Output: MP4')
+        else:
+            raise Exception('ERROR: Invalid output file format')
 
     def toggle_y_view(self):
         """Toggle between RGB and Y (luma) display."""
