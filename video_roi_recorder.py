@@ -153,15 +153,14 @@ class Y4MPlayer(QWidget):
         self.roi_btn       = QPushButton("Record ROI")
         self.zoom_btn      = QPushButton("Show ROI Zoom")
         self.reset_btn     = QPushButton("Reset Zoom")
-        self.start_rec_btn = QPushButton("Start Recording")
-        self.stop_rec_btn  = QPushButton("Stop Recording")
+        self.rec_btn       = QPushButton("Start Recording")
         self.sw_format_btn = QPushButton("Output: Y4M")
         self.show_mode_btn = QPushButton(mode_txt[self.show_mode])
 
         for btn in (
             self.play_btn, self.rewind_btn, self.forward_btn,
             self.roi_btn, self.zoom_btn, self.reset_btn,
-            self.start_rec_btn, self.stop_rec_btn, self.sw_format_btn, self.show_mode_btn
+            self.rec_btn, self.sw_format_btn, self.show_mode_btn
         ):
             btn.setEnabled(False)
 
@@ -169,7 +168,7 @@ class Y4MPlayer(QWidget):
         for w in (
             self.frame_label, self.load_btn, self.play_btn, self.rewind_btn, self.forward_btn,
             self.roi_btn, self.zoom_btn, self.reset_btn,
-            self.start_rec_btn, self.stop_rec_btn, self.sw_format_btn, self.show_mode_btn
+            self.rec_btn, self.sw_format_btn, self.show_mode_btn
         ):
             ctrl.addWidget(w)
 
@@ -187,8 +186,7 @@ class Y4MPlayer(QWidget):
         self.roi_btn.clicked.connect(self.enable_roi)
         self.zoom_btn.clicked.connect(self.show_zoom_subwindow)
         self.reset_btn.clicked.connect(self.clear_zoom)
-        self.start_rec_btn.clicked.connect(self.start_recording)
-        self.stop_rec_btn.clicked.connect(self.stop_recording)
+        self.rec_btn.clicked.connect(self.toggle_recording)
         self.sw_format_btn.clicked.connect(self.switch_format)
         self.show_mode_btn.clicked.connect(self.toggle_y_view)
 
@@ -222,11 +220,10 @@ class Y4MPlayer(QWidget):
         self.frame_iter = self.container.decode(video=0)
         for btn in (
             self.play_btn, self.rewind_btn, self.forward_btn, 
-            self.roi_btn, self.zoom_btn, self.reset_btn, self.start_rec_btn, self.sw_format_btn,
-            self.show_mode_btn
+            self.roi_btn, self.zoom_btn, self.reset_btn, self.rec_btn,
+            self.sw_format_btn, self.show_mode_btn
         ):
             btn.setEnabled(True)
-        self.stop_rec_btn.setEnabled(False)
 
     def toggle_play_pause(self):
         """Toggle between playing and pausing the video."""
@@ -499,9 +496,8 @@ class Y4MPlayer(QWidget):
             return
 
         print(f"[INFO] Recording to {out_roi} and {out_full} from frame {self.record_start_frame}")
-        self.start_rec_btn.setEnabled(False)
-        self.stop_rec_btn.setEnabled(True)
         self.sw_format_btn.setEnabled(False)
+        self.rec_btn.setText("Stop Recording")
 
     def stop_recording(self):
         """Stop recording and save metadata JSON."""
@@ -541,9 +537,15 @@ class Y4MPlayer(QWidget):
             json.dump(meta, f, indent=2)
 
         print(f"[INFO] Saved metadata to {jf}")
-        self.start_rec_btn.setEnabled(True)
-        self.stop_rec_btn.setEnabled(False)
         self.sw_format_btn.setEnabled(True)
+        self.rec_btn.setText("Start Recording")
+
+    def toggle_recording(self):
+        if self.recording:
+            self.stop_recording()
+        else:
+            self.start_recording()
+            
 
     def switch_format(self):
         """Switch output format between Y4M and MP4"""
