@@ -427,7 +427,13 @@ class Y4MPlayer(QWidget):
             return
 
         base = Path(self.container.name).stem
-        self.basename = f"{base}_{int(time.time())}"
+        curr_time = int(time.time())
+        self.basename = f"{curr_time}/{base}_{curr_time}"
+
+        sample_folder = Path(self.save_folder) / f"{curr_time}"
+        if not os.path.exists(sample_folder): 
+            os.makedirs(sample_folder)
+
 
         x0, y0 = self.video_label.topleft
         x1, y1 = self.video_label.bottomright
@@ -439,8 +445,8 @@ class Y4MPlayer(QWidget):
         # Paths
         roi_ext = self.output_format
         full_ext = self.output_format
-        out_roi = os.path.join(self.save_folder, f"{self.basename}_roi.{roi_ext}")
-        out_full = os.path.join(self.save_folder, f"{self.basename}_context.{full_ext}")
+        out_roi = Path(self.save_folder) / f"{self.basename}_roi.{roi_ext}"
+        out_full = Path(self.save_folder) / f"{self.basename}_context.{full_ext}"
 
         self.out_roi_path = out_roi
         self.out_full_path = out_full
@@ -527,12 +533,12 @@ class Y4MPlayer(QWidget):
             'end_frame': self.record_end_frame,
             'topleft': self.video_label.topleft,
             'bottomright': self.video_label.bottomright,
-            'roi_video': self.out_roi_path,
-            'context_video': self.out_full_path,
+            'roi_video': self.out_roi_path.as_posix(),
+            'context_video': self.out_full_path.as_posix(),
             'format': self.output_format
         }
 
-        jf = os.path.join(self.save_folder, f"{self.basename}_roi.json")
+        jf = Path(self.save_folder) / f"{self.basename}_roi.json"
         with open(jf, 'w') as f:
             json.dump(meta, f, indent=2)
 
