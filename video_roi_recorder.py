@@ -289,7 +289,7 @@ class Y4MPlayer(QWidget):
 
         # If recording, write the cropped ROI region
         if self.recording and self.video_label.topleft:
-            bgr = self.current_frame.to_ndarray(format='bgr24')
+            bgr = self.get_processed_frame(self.current_frame)
             x0, y0 = self.video_label.topleft
             x1, y1 = self.video_label.bottomright
 
@@ -310,16 +310,15 @@ class Y4MPlayer(QWidget):
 
         self.update_display_frame(self.current_frame)
 
-    def update_display_frame(self, frame):
+    def get_processed_frame(self, frame):
         """
-        Render the current frame into the main video label (with ROI overlay),
-        and continuously update the zoom inset with the cropped ROI video.
+        Returns an RGB np.array that matches the current self.show_mode display.
         """
         arr = frame.to_ndarray(format='rgb24')
         h, w, _ = arr.shape
 
+        # PCA mode
         if self.show_mode == PCA_MODE and self.video_label.topleft and self.video_label.bottomright:
-            # PCA mode: compute PCA on the cropped ROI
             x0, y0 = self.video_label.topleft
             x1, y1 = self.video_label.bottomright
             roi = arr[y0:y1, x0:x1]
@@ -330,40 +329,27 @@ class Y4MPlayer(QWidget):
                                     [(b_channel-r_min).mean(), (b_channel-g_min).mean(), (b_channel-b_min).mean()]], dtype=np.float32)
 
             mean, eigenvectors = cv2.PCACompute(expectation, mean=None)
+            full_flat = arr.reshape(-1, 3).astype(np.float32)
+            pca_result = np.dot(full_flat - mean, eigenvectors)
+            arr = np.clip(pca_result, 0, 255).astype(np.uint8).reshape(arr.shape)
 
-            full_flat = arr.reshape(-1, 3).astype(np.float32)  # Entire image flattened
-            pca_result = np.dot(full_flat-mean, eigenvectors)
-            pca_img = pca_result.reshape(arr.shape)
-            arr = np.clip(pca_img, 0, 255).astype(np.uint8)
-            
-
-        if hasattr(self, 'next_frame_buffer') and self.next_frame_buffer is not None:
-
-            # YUV difference
+        # Diff modes
+        if self.next_frame_buffer is not None:
             yuv = frame.to_ndarray(format='yuv420p')
-            y = yuv[0:h, :]  # Y channel
+            y = yuv[0:h, :]
             u = yuv[h:h + h // 4, :w // 2]
             v = yuv[h + h // 4:, :w // 2]
             u, v = [cv2.resize(ch, (w, h), interpolation=cv2.INTER_LINEAR) for ch in (u, v)]
 
-            if hasattr(self, 'next_frame_buffer') and self.next_frame_buffer is not None:
-                next_yuv = self.next_frame_buffer.to_ndarray(format='yuv420p')
-                next_y = next_yuv[0:h, :]
-                next_u = next_yuv[h:h + h // 4, :w // 2]
-                next_v = next_yuv[h + h // 4:, :w // 2]
-                next_u, next_v = [cv2.resize(ch, (w, h), interpolation=cv2.INTER_LINEAR) for ch in (next_u, next_v)]
-                # Now you can compute frame diff, optical flow, etc. on y and next_y
-                # Example:
+            next_yuv = self.next_frame_buffer.to_ndarray(format='yuv420p')
+            next_y = next_yuv[0:h, :]
+            next_u = next_yuv[h:h + h // 4, :w // 2]
+            next_v = next_yuv[h + h // 4:, :w // 2]
+            next_u, next_v = [cv2.resize(ch, (w, h), interpolation=cv2.INTER_LINEAR) for ch in (next_u, next_v)]
 
-                y_diff = cv2.absdiff(y, next_y)
-                u_diff = np.abs(u.astype(np.int16) - next_u).astype(np.uint8) * 10
-                v_diff = np.abs(v.astype(np.int16) - next_v).astype(np.uint8) * 10
-
-
-            else:
-                next_y = None
-                next_u = None
-                next_v = None
+            y_diff = cv2.absdiff(y, next_y)
+            u_diff = np.abs(u.astype(np.int16) - next_u).astype(np.uint8) * 10
+            v_diff = np.abs(v.astype(np.int16) - next_v).astype(np.uint8) * 10
 
             if self.show_mode == Y_DIFF_MODE:
                 arr = np.stack([y_diff] * 3, axis=-1)
@@ -371,7 +357,7 @@ class Y4MPlayer(QWidget):
                 arr = np.stack([u_diff] * 3, axis=-1)
             elif self.show_mode == V_DIFF_MODE:
                 arr = np.stack([v_diff] * 3, axis=-1)
-            
+
         else:
             # Regular RGB display
             
@@ -381,8 +367,17 @@ class Y4MPlayer(QWidget):
                 # Do whatever comparison, optical flow, prediction, etc. you need
             else:
                 next_arr = None
-            
 
+        return arr
+
+    def update_display_frame(self, frame):
+        """
+        Render the current frame into the main video label (with ROI overlay),
+        and continuously update the zoom inset with the cropped ROI video.
+        """
+        arr = self.get_processed_frame(frame)
+        h, w, _ = arr.shape
+        
         # compute scale/padding for main video
         lw, lh = self.video_label.width(), self.video_label.height()
         scale = min(lw / w, lh / h)
