@@ -2,3 +2,5 @@ venv/
 videos/
 dataset/
 venv*
+.DS_Store
+__pycache__/

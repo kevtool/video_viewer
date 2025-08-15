@@ -12,16 +12,18 @@ from PyQt5.QtWidgets import (
     QMessageBox, QSizePolicy
 )
 
-NUM_MODES = 4
+NUM_MODES = 5
 ORIGINAL_MODE = 0
 Y_DIFF_MODE = 1
 U_DIFF_MODE = 2
 V_DIFF_MODE = 3
+PCA_MODE = 4
 mode_txt = [
     'Original',
     'Y-Diff',
     'U-Diff',
-    'V-Diff'
+    'V-Diff',
+    'PCA'
 ]
 
 class VideoLabel(QLabel):
@@ -316,7 +318,26 @@ class Y4MPlayer(QWidget):
         arr = frame.to_ndarray(format='rgb24')
         h, w, _ = arr.shape
 
-        if self.show_mode == Y_DIFF_MODE or (hasattr(self, 'next_frame_buffer') and self.next_frame_buffer is not None):
+        if self.show_mode == PCA_MODE and self.video_label.topleft and self.video_label.bottomright:
+            # PCA mode: compute PCA on the cropped ROI
+            x0, y0 = self.video_label.topleft
+            x1, y1 = self.video_label.bottomright
+            roi = arr[y0:y1, x0:x1]
+            r_channel, g_channel, b_channel = roi[:, :, 0], roi[:, :, 1], roi[:, :, 2]
+            r_min, g_min, b_min = r_channel.min(), g_channel.min(), b_channel.min()
+            expectation = np.array([[(r_channel-r_min).mean(), (r_channel-g_min).mean(), (r_channel-b_min).mean()], 
+                                    [(g_channel-r_min).mean(), (g_channel-g_min).mean(), (g_channel-b_min).mean()],
+                                    [(b_channel-r_min).mean(), (b_channel-g_min).mean(), (b_channel-b_min).mean()]], dtype=np.float32)
+
+            mean, eigenvectors = cv2.PCACompute(expectation, mean=None)
+
+            full_flat = arr.reshape(-1, 3).astype(np.float32)  # Entire image flattened
+            pca_result = np.dot(full_flat-mean, eigenvectors)
+            pca_img = pca_result.reshape(arr.shape)
+            arr = np.clip(pca_img, 0, 255).astype(np.uint8)
+            
+
+        if hasattr(self, 'next_frame_buffer') and self.next_frame_buffer is not None:
 
             # YUV difference
             yuv = frame.to_ndarray(format='yuv420p')
