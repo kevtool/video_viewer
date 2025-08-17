@@ -12,18 +12,22 @@ from PyQt5.QtWidgets import (
     QMessageBox, QSizePolicy
 )
 
-NUM_MODES = 5
+NUM_MODES = 7
 ORIGINAL_MODE = 0
 Y_DIFF_MODE = 1
 U_DIFF_MODE = 2
 V_DIFF_MODE = 3
-PCA_MODE = 4
+PCA1_MODE = 4
+PCA2_MODE = 5
+PCA3_MODE = 6
 mode_txt = [
     'Original',
     'Y-Diff',
     'U-Diff',
     'V-Diff',
-    'PCA'
+    'PCA1',
+    'PCA2',
+    'PCA3'
 ]
 
 class VideoLabel(QLabel):
@@ -318,7 +322,9 @@ class Y4MPlayer(QWidget):
         h, w, _ = arr.shape
 
         # PCA mode
-        if self.show_mode == PCA_MODE and self.video_label.topleft and self.video_label.bottomright:
+        if self.show_mode in (PCA1_MODE, PCA2_MODE, PCA3_MODE) and self.video_label.topleft and self.video_label.bottomright:
+
+            # calculate expectation in the ROI
             x0, y0 = self.video_label.topleft
             x1, y1 = self.video_label.bottomright
             roi = arr[y0:y1, x0:x1]
@@ -328,10 +334,24 @@ class Y4MPlayer(QWidget):
                                     [(g_channel-r_min).mean(), (g_channel-g_min).mean(), (g_channel-b_min).mean()],
                                     [(b_channel-r_min).mean(), (b_channel-g_min).mean(), (b_channel-b_min).mean()]], dtype=np.float32)
 
+            # get eigenvectors
             mean, eigenvectors = cv2.PCACompute(expectation, mean=None)
-            full_flat = arr.reshape(-1, 3).astype(np.float32)
-            pca_result = np.dot(full_flat - mean, eigenvectors)
-            arr = np.clip(pca_result, 0, 255).astype(np.uint8).reshape(arr.shape)
+
+            if self.show_mode == PCA1_MODE:
+                eigenvector = eigenvectors[0, :]
+            elif self.show_mode == PCA2_MODE:
+                eigenvector = eigenvectors[1, :]
+            elif self.show_mode == PCA3_MODE:
+                eigenvector = eigenvectors[2, :]
+            else:
+                raise ValueError("Invalid mode")
+            
+            print(eigenvector)
+
+            # project the frame onto the eigenvector
+            pc = arr @ eigenvector
+            pc = np.stack([pc, pc, pc], axis=-1)
+            arr = np.clip(pc, 0, 255).astype(np.uint8)
 
         # Diff modes
         if self.next_frame_buffer is not None:
