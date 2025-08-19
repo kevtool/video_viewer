@@ -328,25 +328,15 @@ class Y4MPlayer(QWidget):
             x0, y0 = self.video_label.topleft
             x1, y1 = self.video_label.bottomright
             roi = arr[y0:y1, x0:x1]
-            r_channel, g_channel, b_channel = roi[:, :, 0], roi[:, :, 1], roi[:, :, 2]
+            data = roi.reshape(-1, 3).T  # shape (3, N)
 
-            roi_h, roi_w = r_channel.shape
-            # r_mean, g_mean, b_mean = r_channel.mean(), g_channel.mean(), b_channel.mean()
-            # print(r_mean, g_mean, b_mean)
-            # print((r_channel-r_mean).shape)
-            # expectation = np.array([[(r_channel-r_mean).mean(), (r_channel-g_mean).mean(), (r_channel-b_mean).mean()], 
-            #                         [(g_channel-r_mean).mean(), (g_channel-g_mean).mean(), (g_channel-b_mean).mean()],
-            #                         [(b_channel-r_mean).mean(), (b_channel-g_mean).mean(), (b_channel-b_mean).mean()]], dtype=np.float32)
-
-            r_flat, g_flat, b_flat = r_channel.flatten(), g_channel.flatten(), b_channel.flatten()
-            data = np.vstack([r_flat, g_flat, b_flat])
-            mean_color = np.mean(data, axis=1, keepdims=True)  # shape: (3, 1)
+            # Center the data
+            mean_color = np.mean(data, axis=1, keepdims=True)
             data_centered = data - mean_color
-            expectation = np.cov(data_centered)
+            covariance_matrix = data_centered @ data_centered.T / (3 - 1)
 
-            print(expectation)
             # get eigenvectors
-            eigenvals, eigenvecs = np.linalg.eigh(expectation)  # eigh for symmetric matrices
+            eigenvals, eigenvecs = np.linalg.eigh(covariance_matrix)  # eigh for symmetric matrices
 
             # Sort by eigenvalues in descending order
             idx = np.argsort(eigenvals)[::-1]  # descending
@@ -363,12 +353,10 @@ class Y4MPlayer(QWidget):
                 raise ValueError("Invalid mode")
             
             print(eigenvector)
-
-            # project the frame onto the eigenvector
-            pc = eigenvector.T @ data_centered 
-            print(eigenvector.T.shape, data_centered.shape, pc.shape)
-            pc = pc.reshape(roi_h, roi_w) 
-            print(pc.shape)
+            
+            pixels = arr.reshape(-1, 3).T - mean_color
+            pc = eigenvector.T @ pixels 
+            pc = pc.reshape(h, w) 
             pc = np.stack([pc, pc, pc], axis=-1)
             arr = np.clip(pc, 0, 255).astype(np.uint8)
 
