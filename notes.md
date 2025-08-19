@@ -5,6 +5,7 @@
 
 #### TODO:
 
+- eigenvec button (see below)
 - PCA currently is a bit slow because we are calculating eigenvectors and covariance matrices for every single frame. We can speed it up by using a eigenvector/covariance matrix cache and only update them in intervals.
 
 #### Video website

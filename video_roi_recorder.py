@@ -9,7 +9,7 @@ from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QLabel, QPushButton,
     QVBoxLayout, QHBoxLayout, QFileDialog, QRubberBand,
-    QMessageBox, QSizePolicy
+    QMessageBox, QSizePolicy, QGridLayout
 )
 
 NUM_MODES = 7
@@ -127,6 +127,7 @@ class Y4MPlayer(QWidget):
         self.output_format = 'y4m'
         self.show_mode = ORIGINAL_MODE
         self.next_frame_buffer = None
+        self.frozen_eigenvecs = False
 
         # -- Video display widgets --
 
@@ -149,7 +150,7 @@ class Y4MPlayer(QWidget):
         video_area.setStretch(0, 1)  # main video
         video_area.setStretch(1, 2)  # zoom inset
 
-        # -- Control buttons --
+        # -- Control buttons first row --
         self.frame_label   = QLabel("Frame: 0")
         self.load_btn      = QPushButton("Load Video")
         self.play_btn      = QPushButton("Play")
@@ -161,7 +162,10 @@ class Y4MPlayer(QWidget):
         self.reset_btn     = QPushButton("Reset Zoom")
         self.rec_btn       = QPushButton("Start Recording")
         self.sw_format_btn = QPushButton("Output: Y4M")
+
+        # -- Control buttons second row --
         self.show_mode_btn = QPushButton(mode_txt[self.show_mode])
+        self.eigenvec_btn  = QPushButton("Lock Eigenv's")
 
         for btn in (
             self.play_btn, self.rewind_btn, self.forward_btn,
@@ -170,18 +174,30 @@ class Y4MPlayer(QWidget):
         ):
             btn.setEnabled(False)
 
-        ctrl = QHBoxLayout()
-        for w in (
-            self.frame_label, self.load_btn, self.play_btn, self.rewind_btn, self.forward_btn,
-            self.roi_btn, self.zoom_btn, self.reset_btn,
-            self.rec_btn, self.sw_format_btn, self.show_mode_btn
-        ):
-            ctrl.addWidget(w)
+        ctrl_layout = QGridLayout()
+        ctrl_layout.setSpacing(10)
+        ctrl_layout.setContentsMargins(0, 10, 0, 0)
+
+        # === First Row ===
+        ctrl_layout.addWidget(self.frame_label,   0, 0)
+        ctrl_layout.addWidget(self.load_btn,      0, 1)
+        ctrl_layout.addWidget(self.play_btn,      0, 2)
+        ctrl_layout.addWidget(self.rewind_btn,    0, 3)
+        ctrl_layout.addWidget(self.forward_btn,   0, 4)
+        ctrl_layout.addWidget(self.roi_btn,       0, 5)
+        ctrl_layout.addWidget(self.zoom_btn,      0, 6)
+        ctrl_layout.addWidget(self.reset_btn,     0, 7)
+        ctrl_layout.addWidget(self.rec_btn,       0, 8)
+        ctrl_layout.addWidget(self.sw_format_btn, 0, 9)
+
+        # === Second Row ===
+        ctrl_layout.addWidget(self.show_mode_btn, 1, 8)
+        ctrl_layout.addWidget(self.eigenvec_btn, 1, 9)
 
         # Assemble main layout
         layout = QVBoxLayout(self)
         layout.addLayout(video_area)
-        layout.addLayout(ctrl)
+        layout.addLayout(ctrl_layout)
 
         # Connect signals
         self.load_btn.clicked.connect(self.load_video)
@@ -195,6 +211,7 @@ class Y4MPlayer(QWidget):
         self.rec_btn.clicked.connect(self.toggle_recording)
         self.sw_format_btn.clicked.connect(self.switch_format)
         self.show_mode_btn.clicked.connect(self.toggle_y_view)
+        self.eigenvec_btn.clicked.connect(self.toggle_eigenvecs)
 
         # Playback timer
         self.timer = QTimer()
@@ -355,7 +372,7 @@ class Y4MPlayer(QWidget):
             print(eigenvector)
             
             pixels = arr.reshape(-1, 3).T - mean_color
-            pc = eigenvector.T @ pixels 
+            pc = pixels.T @ eigenvector 
             pc = pc.reshape(h, w) 
             pc = np.stack([pc, pc, pc], axis=-1)
             arr = np.clip(pc, 0, 255).astype(np.uint8)
@@ -594,6 +611,14 @@ class Y4MPlayer(QWidget):
             self.stop_recording()
         else:
             self.start_recording()
+
+    def toggle_eigenvecs(self):
+        if self.frozen_eigenvecs:
+            self.frozen_eigenvecs = False
+            self.eigenvec_btn.setText("Lock Eigenv's")
+        else:
+            self.frozen_eigenvecs = True
+            self.eigenvec_btn.setText("Unlock Eigenv's")
             
 
     def switch_format(self):
