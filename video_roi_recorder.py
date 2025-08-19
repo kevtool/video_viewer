@@ -329,13 +329,29 @@ class Y4MPlayer(QWidget):
             x1, y1 = self.video_label.bottomright
             roi = arr[y0:y1, x0:x1]
             r_channel, g_channel, b_channel = roi[:, :, 0], roi[:, :, 1], roi[:, :, 2]
-            r_min, g_min, b_min = r_channel.min(), g_channel.min(), b_channel.min()
-            expectation = np.array([[(r_channel-r_min).mean(), (r_channel-g_min).mean(), (r_channel-b_min).mean()], 
-                                    [(g_channel-r_min).mean(), (g_channel-g_min).mean(), (g_channel-b_min).mean()],
-                                    [(b_channel-r_min).mean(), (b_channel-g_min).mean(), (b_channel-b_min).mean()]], dtype=np.float32)
 
+            roi_h, roi_w = r_channel.shape
+            # r_mean, g_mean, b_mean = r_channel.mean(), g_channel.mean(), b_channel.mean()
+            # print(r_mean, g_mean, b_mean)
+            # print((r_channel-r_mean).shape)
+            # expectation = np.array([[(r_channel-r_mean).mean(), (r_channel-g_mean).mean(), (r_channel-b_mean).mean()], 
+            #                         [(g_channel-r_mean).mean(), (g_channel-g_mean).mean(), (g_channel-b_mean).mean()],
+            #                         [(b_channel-r_mean).mean(), (b_channel-g_mean).mean(), (b_channel-b_mean).mean()]], dtype=np.float32)
+
+            r_flat, g_flat, b_flat = r_channel.flatten(), g_channel.flatten(), b_channel.flatten()
+            data = np.vstack([r_flat, g_flat, b_flat])
+            mean_color = np.mean(data, axis=1, keepdims=True)  # shape: (3, 1)
+            data_centered = data - mean_color
+            expectation = np.cov(data_centered)
+
+            print(expectation)
             # get eigenvectors
-            mean, eigenvectors = cv2.PCACompute(expectation, mean=None)
+            eigenvals, eigenvecs = np.linalg.eigh(expectation)  # eigh for symmetric matrices
+
+            # Sort by eigenvalues in descending order
+            idx = np.argsort(eigenvals)[::-1]  # descending
+            eigenvals = eigenvals[idx]
+            eigenvectors = eigenvecs[:, idx]
 
             if self.show_mode == PCA1_MODE:
                 eigenvector = eigenvectors[0, :]
@@ -349,7 +365,10 @@ class Y4MPlayer(QWidget):
             print(eigenvector)
 
             # project the frame onto the eigenvector
-            pc = arr @ eigenvector
+            pc = eigenvector.T @ data_centered 
+            print(eigenvector.T.shape, data_centered.shape, pc.shape)
+            pc = pc.reshape(roi_h, roi_w) 
+            print(pc.shape)
             pc = np.stack([pc, pc, pc], axis=-1)
             arr = np.clip(pc, 0, 255).astype(np.uint8)
 
