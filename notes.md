@@ -2,11 +2,10 @@
 
 - Rewind is very laggy on some videos
 - forward and rewind doesn't work on some videos
-- issues with PCA?
 
 #### TODO:
 
-- none
+- PCA currently is a bit slow because we are calculating eigenvectors and covariance matrices for every single frame. We can speed it up by using a eigenvector/covariance matrix cache and only update them in intervals.
 
 #### Video website
 https://media.xiph.org/video/derf/

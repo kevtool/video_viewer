@@ -328,14 +328,20 @@ class Y4MPlayer(QWidget):
             x0, y0 = self.video_label.topleft
             x1, y1 = self.video_label.bottomright
             roi = arr[y0:y1, x0:x1]
-            r_channel, g_channel, b_channel = roi[:, :, 0], roi[:, :, 1], roi[:, :, 2]
-            r_min, g_min, b_min = r_channel.min(), g_channel.min(), b_channel.min()
-            expectation = np.array([[(r_channel-r_min).mean(), (r_channel-g_min).mean(), (r_channel-b_min).mean()], 
-                                    [(g_channel-r_min).mean(), (g_channel-g_min).mean(), (g_channel-b_min).mean()],
-                                    [(b_channel-r_min).mean(), (b_channel-g_min).mean(), (b_channel-b_min).mean()]], dtype=np.float32)
+            data = roi.reshape(-1, 3).T  # shape (3, N)
+
+            # Center the data
+            mean_color = np.mean(data, axis=1, keepdims=True)
+            data_centered = data - mean_color
+            covariance_matrix = data_centered @ data_centered.T / (3 - 1)
 
             # get eigenvectors
-            mean, eigenvectors = cv2.PCACompute(expectation, mean=None)
+            eigenvals, eigenvecs = np.linalg.eigh(covariance_matrix)  # eigh for symmetric matrices
+
+            # Sort by eigenvalues in descending order
+            idx = np.argsort(eigenvals)[::-1]  # descending
+            eigenvals = eigenvals[idx]
+            eigenvectors = eigenvecs[:, idx]
 
             if self.show_mode == PCA1_MODE:
                 eigenvector = eigenvectors[0, :]
@@ -347,9 +353,10 @@ class Y4MPlayer(QWidget):
                 raise ValueError("Invalid mode")
             
             print(eigenvector)
-
-            # project the frame onto the eigenvector
-            pc = arr @ eigenvector
+            
+            pixels = arr.reshape(-1, 3).T - mean_color
+            pc = eigenvector.T @ pixels 
+            pc = pc.reshape(h, w) 
             pc = np.stack([pc, pc, pc], axis=-1)
             arr = np.clip(pc, 0, 255).astype(np.uint8)
 
