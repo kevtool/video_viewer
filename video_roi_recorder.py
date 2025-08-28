@@ -127,6 +127,7 @@ class Y4MPlayer(QWidget):
         self.output_format = 'y4m'
         self.show_mode = ORIGINAL_MODE
         self.next_frame_buffer = None
+        self.eigenvectors = None
         self.frozen_eigenvecs = False
 
         # -- Video display widgets --
@@ -346,19 +347,26 @@ class Y4MPlayer(QWidget):
             x1, y1 = self.video_label.bottomright
             roi = arr[y0:y1, x0:x1]
             data = roi.reshape(-1, 3).T  # shape (3, N)
-
-            # Center the data
             mean_color = np.mean(data, axis=1, keepdims=True)
-            data_centered = data - mean_color
-            covariance_matrix = data_centered @ data_centered.T / (3 - 1)
 
-            # get eigenvectors
-            eigenvals, eigenvecs = np.linalg.eigh(covariance_matrix)  # eigh for symmetric matrices
+            # only recalculate eigenvectors if not frozen
+            if (not self.frozen_eigenvecs) or self.eigenvectors is None:
+                # Center the data
+                data_centered = data - mean_color
+                covariance_matrix = data_centered @ data_centered.T / (3 - 1)
 
-            # Sort by eigenvalues in descending order
-            idx = np.argsort(eigenvals)[::-1]  # descending
-            eigenvals = eigenvals[idx]
-            eigenvectors = eigenvecs[:, idx]
+                # get eigenvectors
+                eigenvals, eigenvecs = np.linalg.eigh(covariance_matrix)  # eigh for symmetric matrices
+
+                # Sort by eigenvalues in descending order
+                idx = np.argsort(eigenvals)[::-1]  # descending
+                eigenvals = eigenvals[idx]
+
+                eigenvectors = eigenvecs[:, idx]
+                self.eigenvectors = eigenvectors
+
+            else:
+                eigenvectors = self.eigenvectors
 
             if self.show_mode == PCA1_MODE:
                 eigenvector = eigenvectors[0, :]
@@ -375,7 +383,9 @@ class Y4MPlayer(QWidget):
             pc = pixels.T @ eigenvector 
             pc = pc.reshape(h, w) 
             pc = np.stack([pc, pc, pc], axis=-1)
-            arr = np.clip(pc, 0, 255).astype(np.uint8)
+            arr = np.clip(pc, 0, 255)
+            arr = (arr - arr.min()) / (arr.max() - arr.min()) * 200
+            arr = arr.astype(np.uint8)
 
         # Diff modes
         if self.next_frame_buffer is not None:
