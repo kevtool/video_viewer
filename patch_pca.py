@@ -31,9 +31,11 @@ def patch_pca(frame_t, frame_tn1, topleft, patch_size=32, entire_frame=False):
         pca_t = frame_t @ eigenvector
         pca_tn1 = frame_tn1 @ eigenvector
         diff = pca_t - pca_tn1
+        diff = np.abs(diff)
 
     else:
         print(roi_t.shape, eigenvector.shape)
         pca_t = roi_t @ eigenvector
         pca_tn1 = roi_tn1 @ eigenvector
         diff = pca_t - pca_tn1
+        diff = np.abs(diff)
