@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QMessageBox, QSizePolicy, QGridLayout
 )
 
-from patch_pca import patch_pca
+from patch_pca import FramePCA
 
 NUM_MODES = 2
 ORIGINAL_MODE = 0
@@ -121,6 +121,8 @@ class Y4MPlayer(QWidget):
         self.next_frame_buffer = None
         self.eigenvectors = None
         self.frozen_eigenvecs = False
+
+        self.frame_pca = FramePCA()
 
         # -- Video display widgets --
 
@@ -335,8 +337,8 @@ class Y4MPlayer(QWidget):
         if self.show_mode == PCA_MODE and self.video_label.topleft and (self.next_frame_buffer is not None):
 
             next_arr = self.next_frame_buffer.to_ndarray(format='rgb24')
-            
-            pca_diff = patch_pca(arr, next_arr, self.video_label.topleft, patch_size=32, entire_frame=True)
+
+            arr = self.frame_pca.patch_pca(arr, next_arr, self.video_label.topleft, patch_size=200, entire_frame=True)
 
         return arr
 
@@ -542,9 +544,11 @@ class Y4MPlayer(QWidget):
         if self.frozen_eigenvecs:
             self.frozen_eigenvecs = False
             self.eigenvec_btn.setText("Lock Eigenv's")
+            self.frame_pca.set_freeze_eigenvectors(False)
         else:
             self.frozen_eigenvecs = True
             self.eigenvec_btn.setText("Unlock Eigenv's")
+            self.frame_pca.set_freeze_eigenvectors(True)
             
 
     def switch_format(self):
