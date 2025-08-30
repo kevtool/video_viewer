@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 class FramePCA:
     def __init__(self):
@@ -7,6 +8,31 @@ class FramePCA:
 
     def set_freeze_eigenvectors(self, freeze: bool):
         self.freeze_eigenvectors = freeze
+
+    def initialize_histogram(self):
+        self.fig, self.ax = plt.subplots()
+        self.ax.set_title('Live Updating Histogram')
+        self.ax.set_xlabel('Value')
+        self.ax.set_ylabel('Frequency')
+        self.n_bins = 20
+
+        plt.ion()
+        plt.show()
+
+    def update_histogram(self, data):
+        if isinstance(data, np.ndarray) and data.ndim > 1:
+            data = data.flatten()
+
+        self.ax.clear()
+        
+        # Plot histogram
+        self.ax.hist(data, bins=self.n_bins, color='skyblue', edgecolor='black', alpha=0.7)
+        self.ax.set_title('Live Updating Histogram')
+        self.ax.set_xlabel('Value')
+        self.ax.set_ylabel('Frequency')
+
+        self.fig.canvas.draw()
+        self.fig.canvas.flush_events()
 
     def patch_pca(self, frame_t, frame_tn1, topleft, patch_size=32, entire_frame=False):
 
@@ -55,10 +81,12 @@ class FramePCA:
 
             arr = np.stack([diff, diff, diff], axis=-1)
             arr = arr.astype(np.uint8)
-            return arr
+            
 
-        else:
-            pca_t = roi_t @ eigenvector
-            pca_tn1 = roi_tn1 @ eigenvector
-            diff = pca_t - pca_tn1
-            diff = np.abs(diff)
+        pca_t = roi_t @ eigenvector
+        pca_tn1 = roi_tn1 @ eigenvector
+        diff = pca_t - pca_tn1
+        diff = np.abs(diff)
+        self.update_histogram(diff)
+
+        return arr

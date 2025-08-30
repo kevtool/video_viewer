@@ -123,6 +123,7 @@ class Y4MPlayer(QWidget):
         self.frozen_eigenvecs = False
 
         self.frame_pca = FramePCA()
+        self.frame_pca.initialize_histogram()
 
         # -- Video display widgets --
 
