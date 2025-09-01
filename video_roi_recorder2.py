@@ -339,7 +339,7 @@ class Y4MPlayer(QWidget):
 
             next_arr = self.next_frame_buffer.to_ndarray(format='rgb24')
 
-            arr = self.frame_pca.patch_pca(arr, next_arr, self.video_label.topleft, patch_size=200, entire_frame=True)
+            arr = self.frame_pca.patch_pca(arr, next_arr, self.video_label.topleft, patch_size=128, entire_frame=True)
 
         return arr
 

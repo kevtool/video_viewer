@@ -14,7 +14,11 @@ class FramePCA:
         self.ax.set_title('Live Updating Histogram')
         self.ax.set_xlabel('Value')
         self.ax.set_ylabel('Frequency')
-        self.n_bins = 20
+        self.n_bins = 24
+
+        # sets the x and y axis maximum values
+        self.ax.set_xlim(0, 192)
+        self.ax.set_ylim(0, 12000)
 
         plt.ion()
         plt.show()
@@ -31,25 +35,28 @@ class FramePCA:
         self.ax.set_xlabel('Value')
         self.ax.set_ylabel('Frequency')
 
+        # sets the x and y axis maximum values
+        self.ax.set_xlim(0, 192)
+        self.ax.set_ylim(0, 12000)
+
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
 
     def patch_pca(self, frame_t, frame_tn1, topleft, patch_size=32, entire_frame=False):
 
+        x0, y0 = topleft
+        roi_t = frame_t[y0:y0+patch_size, x0:x0+patch_size]
+        roi_tn1 = frame_tn1[y0:y0+patch_size, x0:x0+patch_size]
+
+        # color pca
+        data = np.concatenate((roi_t, roi_tn1), axis=0)
+        data = data.reshape(-1, 3).T
+        mean_color = np.mean(data, axis=1, keepdims=True)
+
         if self.freeze_eigenvectors and self.eigenvector is not None:
             eigenvector = self.eigenvector
 
-        else:
-            # extract roi
-            x0, y0 = topleft
-            roi_t = frame_t[y0:y0+patch_size, x0:x0+patch_size]
-            roi_tn1 = frame_tn1[y0:y0+patch_size, x0:x0+patch_size]
-
-            # color pca
-            data = np.concatenate((roi_t, roi_tn1), axis=0)
-            data = data.reshape(-1, 3).T
-            mean_color = np.mean(data, axis=1, keepdims=True)
-
+        else:            
             data_centered = data - mean_color
             covariance_matrix = data_centered @ data_centered.T / (3 - 1)
 
@@ -65,26 +72,36 @@ class FramePCA:
 
             self.eigenvector = eigenvector
 
-        print(eigenvector)
+        print(frame_t.shape, roi_t.shape)
 
         # pixelwise subtraction
         if entire_frame:
-            pca_t = frame_t @ eigenvector
-            pca_tn1 = frame_tn1 @ eigenvector
+            pca_t = (frame_t.reshape(-1, 3).T - mean_color).T @ eigenvector
+            pca_t = pca_t.reshape(frame_t.shape[0], frame_t.shape[1])
+
+            pca_tn1 = (frame_tn1.reshape(-1, 3).T - mean_color).T @ eigenvector
+            pca_tn1 = pca_tn1.reshape(frame_tn1.shape[0], frame_tn1.shape[1])
+
             pca_t, pca_tn1 = np.clip(pca_t, 0, 255), np.clip(pca_tn1, 0, 255)
             pca_t, pca_tn1 = (pca_t - pca_t.min()) / (pca_t.max() - pca_t.min()) * 200, (pca_tn1 - pca_tn1.min()) / (pca_tn1.max() - pca_tn1.min()) * 200
             diff = pca_t - pca_tn1
             diff = np.abs(diff)
 
-            diff = pca_t
-
-
             arr = np.stack([diff, diff, diff], axis=-1)
             arr = arr.astype(np.uint8)
+        
+        else:
+            arr = None
             
 
-        pca_t = roi_t @ eigenvector
-        pca_tn1 = roi_tn1 @ eigenvector
+        pca_t = (roi_t.reshape(-1, 3).T - mean_color).T @ eigenvector
+        pca_t = pca_t.reshape(patch_size, patch_size)
+
+        pca_tn1 = (roi_tn1.reshape(-1, 3).T - mean_color).T @ eigenvector
+        pca_tn1 = pca_tn1.reshape(patch_size, patch_size)
+
+        pca_t, pca_tn1 = np.clip(pca_t, 0, 255), np.clip(pca_tn1, 0, 255)
+        pca_t, pca_tn1 = (pca_t - pca_t.min()) / (pca_t.max() - pca_t.min()) * 200, (pca_tn1 - pca_tn1.min()) / (pca_tn1.max() - pca_tn1.min()) * 200
         diff = pca_t - pca_tn1
         diff = np.abs(diff)
         self.update_histogram(diff)
