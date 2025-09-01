@@ -14,11 +14,13 @@ from PyQt5.QtWidgets import (
 
 from patch_pca import FramePCA
 
-NUM_MODES = 2
+NUM_MODES = 3
 ORIGINAL_MODE = 0
 PCA_MODE = 1
+PCA_DIFF_MODE = 2
 mode_txt = [
     'Original',
+    'PCA1',
     'PCA1-Diff'
 ]
 
@@ -119,6 +121,7 @@ class Y4MPlayer(QWidget):
         self.output_format = 'y4m'
         self.show_mode = ORIGINAL_MODE
         self.next_frame_buffer = None
+        self.frames = [None] * 2
         self.eigenvectors = None
         self.frozen_eigenvecs = False
 
@@ -335,11 +338,48 @@ class Y4MPlayer(QWidget):
         h, w, _ = arr.shape
 
         # PCA mode
-        if self.show_mode == PCA_MODE and self.video_label.topleft and (self.next_frame_buffer is not None):
+        if self.show_mode == PCA_DIFF_MODE and self.video_label.topleft and (self.next_frame_buffer is not None):
 
             next_arr = self.next_frame_buffer.to_ndarray(format='rgb24')
 
             arr = self.frame_pca.patch_pca(arr, next_arr, self.video_label.topleft, patch_size=128, entire_frame=True)
+
+        elif self.show_mode == PCA_MODE and self.video_label.topleft and self.video_label.bottomright:
+
+            x0, y0 = self.video_label.topleft
+            x1, y1 = self.video_label.bottomright
+            roi = arr[y0:y1, x0:x1]
+            data = roi.reshape(-1, 3).T  # shape (3, N)
+            mean_color = np.mean(data, axis=1, keepdims=True)
+
+            # only recalculate eigenvectors if not frozen
+            if (not self.frozen_eigenvecs) or self.eigenvectors is None:
+                # Center the data
+                data_centered = data - mean_color
+                covariance_matrix = data_centered @ data_centered.T / (3 - 1)
+
+                # get eigenvectors
+                eigenvals, eigenvecs = np.linalg.eigh(covariance_matrix)  # eigh for symmetric matrices
+
+                # Sort by eigenvalues in descending order
+                idx = np.argsort(eigenvals)[::-1]  # descending
+                eigenvals = eigenvals[idx]
+
+                eigenvectors = eigenvecs[:, idx]
+                self.eigenvectors = eigenvectors
+
+            else:
+                eigenvectors = self.eigenvectors
+
+            eigenvector = eigenvectors[0, :]
+                        
+            pixels = arr.reshape(-1, 3).T - mean_color
+            pc = pixels.T @ eigenvector 
+            pc = pc.reshape(h, w) 
+            pc = np.stack([pc, pc, pc], axis=-1)
+            arr = np.clip(pc, 0, 255)
+            arr = (arr - arr.min()) / (arr.max() - arr.min()) * 200
+            arr = arr.astype(np.uint8)
 
         return arr
 
