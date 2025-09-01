@@ -121,7 +121,7 @@ class Y4MPlayer(QWidget):
         self.output_format = 'y4m'
         self.show_mode = ORIGINAL_MODE
         self.next_frame_buffer = None
-        self.frames = [None] * 2
+        self.frames = [None] * 4
         self.eigenvectors = None
         self.frozen_eigenvecs = False
 
@@ -235,6 +235,11 @@ class Y4MPlayer(QWidget):
         self.video_label.set_original_size(first.width, first.height)
         self.current_frame = first
         self.next_frame_buffer = next(self.frame_iter)  # prefetch next frame
+        for i in range(2, 4):
+            try:
+                self.frames[i] = next(self.frame_iter)
+            except StopIteration:
+                self.frames[i] = None
         self.global_frame_number = 0
         self.update_display_frame(first)
 
