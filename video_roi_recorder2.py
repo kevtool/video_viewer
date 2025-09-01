@@ -14,14 +14,18 @@ from PyQt5.QtWidgets import (
 
 from patch_pca import FramePCA
 
-NUM_MODES = 3
+NUM_MODES = 5
 ORIGINAL_MODE = 0
 PCA_MODE = 1
-PCA_DIFF_MODE = 2
+PCA_DIFF_1_MODE = 2 # t and t+1
+PCA_DIFF_2_MODE = 3 # t and t+2
+PCA_DIFF_3_MODE = 4 # t and t+3
 mode_txt = [
     'Original',
     'PCA1',
-    'PCA1-Diff'
+    'PCA1-Diff, t+1',
+    'PCA1-Diff, t+2',
+    'PCA1-Diff, t+3'
 ]
 
 class VideoLabel(QLabel):
@@ -120,7 +124,7 @@ class Y4MPlayer(QWidget):
         self.record_end_frame = None
         self.output_format = 'y4m'
         self.show_mode = ORIGINAL_MODE
-        self.next_frame_buffer = None
+        # self.next_frame_buffer = None
         self.frames = [None] * 4
         self.eigenvectors = None
         self.frozen_eigenvecs = False
@@ -234,17 +238,19 @@ class Y4MPlayer(QWidget):
         first = next(self.frame_iter)
         self.video_label.set_original_size(first.width, first.height)
         self.current_frame = first
-        self.next_frame_buffer = next(self.frame_iter)  # prefetch next frame
-        for i in range(2, 4):
+
+        
+        for i in range(1, 4):
             try:
                 self.frames[i] = next(self.frame_iter)
             except StopIteration:
                 self.frames[i] = None
+
         self.global_frame_number = 0
         self.update_display_frame(first)
 
         # reset iterator and enable controls
-        self.frame_iter = self.container.decode(video=0)
+        # self.frame_iter = self.container.decode(video=0)
         for btn in (
             self.play_btn, self.rewind_btn, self.forward_btn, 
             self.roi_btn, self.zoom_btn, self.reset_btn, self.rec_btn,
@@ -291,24 +297,29 @@ class Y4MPlayer(QWidget):
             self.global_frame_number = int(round(frame.time * self.fps))
             if self.global_frame_number >= target_frame:
                 self.current_frame = frame
-                try:
-                    self.next_frame_buffer = next(self.frame_iter)
-                except StopIteration:
-                    self.next_frame_buffer = None
+
+
+                for i in range(1, 4):
+                    try:
+                        self.frames[i] = next(self.frame_iter)
+                    except StopIteration:
+                        self.frames[i] = None
                 self.update_display_frame(self.current_frame)
                 break
 
     def next_frame(self):
         """Advance one frame, record if active, then render update."""
-        if self.next_frame_buffer is None:
+        if self.frames[1] is None:
             self.toggle_play_pause()
             return
     
-        self.current_frame = self.next_frame_buffer
+        self.current_frame = self.frames[1]
+        for i in range(1, 3):
+            self.frames[i] = self.frames[i + 1]
         try:
-            self.next_frame_buffer = next(self.frame_iter)
+            self.frames[3] = next(self.frame_iter)
         except StopIteration:
-            self.next_frame_buffer = None
+            self.frames[3] = None
 
         self.global_frame_number = int(round(self.current_frame.time * self.fps))
 
@@ -343,11 +354,22 @@ class Y4MPlayer(QWidget):
         h, w, _ = arr.shape
 
         # PCA mode
-        if self.show_mode == PCA_DIFF_MODE and self.video_label.topleft and (self.next_frame_buffer is not None):
+        if self.show_mode == PCA_DIFF_1_MODE and self.video_label.topleft and (self.frames[1] is not None):
 
-            next_arr = self.next_frame_buffer.to_ndarray(format='rgb24')
-
+            next_arr = self.frames[1].to_ndarray(format='rgb24')
             arr = self.frame_pca.patch_pca(arr, next_arr, self.video_label.topleft, patch_size=128, entire_frame=True)
+
+        elif self.show_mode == PCA_DIFF_2_MODE and self.video_label.topleft and (self.frames[2] is not None):
+
+            next_arr = self.frames[2].to_ndarray(format='rgb24')
+            arr = self.frame_pca.patch_pca(arr, next_arr, self.video_label.topleft, patch_size=128, entire_frame=True)
+
+        elif self.show_mode == PCA_DIFF_3_MODE and self.video_label.topleft and (self.frames[3] is not None):
+
+            next_arr = self.frames[3].to_ndarray(format='rgb24')
+            arr = self.frame_pca.patch_pca(arr, next_arr, self.video_label.topleft, patch_size=128, entire_frame=True)
+
+            
 
         elif self.show_mode == PCA_MODE and self.video_label.topleft and self.video_label.bottomright:
 

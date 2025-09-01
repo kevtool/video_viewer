@@ -14,10 +14,10 @@ class FramePCA:
         self.ax.set_title('Live Updating Histogram')
         self.ax.set_xlabel('Value')
         self.ax.set_ylabel('Frequency')
-        self.n_bins = 24
+        self.n_bins = 64
 
         # sets the x and y axis maximum values
-        self.ax.set_xlim(0, 192)
+        self.ax.set_xlim(0, 256)
         self.ax.set_ylim(0, 12000)
 
         plt.ion()
@@ -36,7 +36,7 @@ class FramePCA:
         self.ax.set_ylabel('Frequency')
 
         # sets the x and y axis maximum values
-        self.ax.set_xlim(0, 192)
+        self.ax.set_xlim(0, 256)
         self.ax.set_ylim(0, 12000)
 
         self.fig.canvas.draw()
