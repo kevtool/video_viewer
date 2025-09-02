@@ -104,6 +104,8 @@ class FramePCA:
         pca_t, pca_tn1 = (pca_t - pca_t.min()) / (pca_t.max() - pca_t.min()) * 200, (pca_tn1 - pca_tn1.min()) / (pca_tn1.max() - pca_tn1.min()) * 200
         diff = pca_t - pca_tn1
         diff = np.abs(diff)
+        diff = (diff - diff.min()) / (diff.max() - diff.min()) * 255
+        print(diff.max())
         self.update_histogram(diff)
 
         return arr
