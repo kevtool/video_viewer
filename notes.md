@@ -5,8 +5,7 @@
 
 #### TODO:
 
-- eigenvec button (see below)
-- PCA currently is a bit slow because we are calculating eigenvectors and covariance matrices for every single frame. We can speed it up by using a eigenvector/covariance matrix cache and only update them in intervals.
+- check clipping logic - currently in the PCA channel in video_roi_recorder2, we apply clipping twice. Is this necessary? should we apply normalization for the first one instead? or normalization in both instances instead?
 
 #### Video website
 https://media.xiph.org/video/derf/

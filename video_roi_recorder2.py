@@ -403,9 +403,13 @@ class Y4MPlayer(QWidget):
             pixels = arr.reshape(-1, 3).T - mean_color
             pc = pixels.T @ eigenvector 
             pc = pc.reshape(h, w) 
-            pc = np.stack([pc, pc, pc], axis=-1)
-            arr = np.clip(pc, 0, 255)
-            arr = (arr - arr.min()) / (arr.max() - arr.min()) * 200
+            arr = np.stack([pc, pc, pc], axis=-1)
+            arr = np.clip(arr, 0, 255)
+            roi = arr[y0:y1, x0:x1]
+            arr = (arr - roi.min()) / (roi.max() - roi.min()) * 255
+
+            print(arr[y0:y1, x0:x1].min(), arr[y0:y1, x0:x1].max(), arr.min(), arr.max())
+            arr = np.clip(arr, 0, 255)
             arr = arr.astype(np.uint8)
 
         return arr
