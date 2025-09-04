@@ -5,16 +5,16 @@ class FramePCA:
     def __init__(self):
         self.eigenvector = None
         self.freeze_eigenvectors = False
-
+        
     def set_freeze_eigenvectors(self, freeze: bool):
         self.freeze_eigenvectors = freeze
 
-    def initialize_histogram(self):
+    def initialize_histogram(self, n_bins=64):
         self.fig, self.ax = plt.subplots()
         self.ax.set_title('Live Updating Histogram')
         self.ax.set_xlabel('Value')
         self.ax.set_ylabel('Frequency')
-        self.n_bins = 64
+        self.n_bins = n_bins
 
         # sets the x and y axis maximum values
         self.ax.set_xlim(0, 256)
@@ -42,7 +42,7 @@ class FramePCA:
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
 
-    def patch_pca(self, frame_t, frame_tn1, topleft, patch_size=32, entire_frame=False):
+    def patch_pca(self, frame_t, frame_tn1, topleft, patch_size=32, entire_frame=False, get_histogram_data=False):
 
         x0, y0 = topleft
         roi_t = frame_t[y0:y0+patch_size, x0:x0+patch_size]
@@ -105,7 +105,12 @@ class FramePCA:
         diff = pca_t - pca_tn1
         diff = np.abs(diff)
         diff = (diff - diff.min()) / (diff.max() - diff.min()) * 255
-        print(diff.max())
+
+        if get_histogram_data:
+            bin_edges = np.linspace(0, 256, 65)
+            counts, _ = np.histogram(data, bin_edges)
+            return counts
+
         self.update_histogram(diff)
 
         return arr

@@ -167,13 +167,15 @@ class Y4MPlayer(QWidget):
         self.sw_format_btn = QPushButton("Output: Y4M")
 
         # -- Control buttons second row --
+        self.gethist_btn   = QPushButton("Compute Histogram")
         self.show_mode_btn = QPushButton(mode_txt[self.show_mode])
         self.eigenvec_btn  = QPushButton("Lock Eigenv's")
 
         for btn in (
             self.play_btn, self.rewind_btn, self.forward_btn,
             self.roi_btn, self.zoom_btn, self.reset_btn,
-            self.rec_btn, self.sw_format_btn, self.show_mode_btn
+            self.rec_btn, self.sw_format_btn, self.gethist_btn,
+            self.show_mode_btn,
         ):
             btn.setEnabled(False)
 
@@ -194,8 +196,9 @@ class Y4MPlayer(QWidget):
         ctrl_layout.addWidget(self.sw_format_btn, 0, 9)
 
         # === Second Row ===
+        ctrl_layout.addWidget(self.gethist_btn,   1, 7)
         ctrl_layout.addWidget(self.show_mode_btn, 1, 8)
-        ctrl_layout.addWidget(self.eigenvec_btn, 1, 9)
+        ctrl_layout.addWidget(self.eigenvec_btn,  1, 9)
 
         # Assemble main layout
         layout = QVBoxLayout(self)
@@ -213,6 +216,7 @@ class Y4MPlayer(QWidget):
         self.reset_btn.clicked.connect(self.clear_zoom)
         self.rec_btn.clicked.connect(self.toggle_recording)
         self.sw_format_btn.clicked.connect(self.switch_format)
+        self.gethist_btn.clicked.connect(self.compute_histogram)
         self.show_mode_btn.clicked.connect(self.toggle_y_view)
         self.eigenvec_btn.clicked.connect(self.toggle_eigenvecs)
 
@@ -465,6 +469,24 @@ class Y4MPlayer(QWidget):
                 Qt.SmoothTransformation
             )
             self.zoom_label.setPixmap(zp)
+
+    def compute_histogram(self):
+        if not self.container or not self.video_label.topleft:
+            return
+        
+        prev_arr = None
+        frame_iter = self.container.decode(video=0)
+
+        for frame in frame_iter:
+            arr = frame.to_ndarray(format='rgb24')
+
+            if prev_arr is not None:
+                counts = self.frame_pca.patch_pca(prev_arr, arr, self.video_label.topleft, patch_size=128, entire_frame=False,
+                                         get_histogram_data=True)
+            
+                print(counts)
+
+            prev_arr = arr
 
     def enable_roi(self):
         """Enable ROI selection mode."""
