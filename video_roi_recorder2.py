@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
 )
 
 from patch_pca import FramePCA
+from utils import save_histogram_from_bins
 
 NUM_MODES = 5
 ORIGINAL_MODE = 0
@@ -84,12 +85,15 @@ class VideoLabel(QLabel):
             p1, p2 = self.origin, event.pos()
             o1 = self.map_to_original(p1)
             o2 = self.map_to_original(p2)
+
             if o1 and o2:
                 x0, y0 = o1
                 x1, y1 = o2
                 self.topleft = (min(x0, x1), min(y0, y1))
                 self.bottomright = (max(x0, x1), max(y0, y1))
                 print(f"[INFO] ROI set to {self.topleft} → {self.bottomright}")
+                self.player.gethist_btn.setEnabled(True)
+            
             self.player.roi_mode = False
             self.player.update_display_frame(self.player.current_frame)
         else:
@@ -476,17 +480,20 @@ class Y4MPlayer(QWidget):
         
         prev_arr = None
         frame_iter = self.container.decode(video=0)
+        counts = np.zeros((64,), dtype=np.int32)
 
         for frame in frame_iter:
             arr = frame.to_ndarray(format='rgb24')
 
             if prev_arr is not None:
-                counts = self.frame_pca.patch_pca(prev_arr, arr, self.video_label.topleft, patch_size=128, entire_frame=False,
+                counts += self.frame_pca.patch_pca(prev_arr, arr, self.video_label.topleft, patch_size=128, entire_frame=False,
                                          get_histogram_data=True)
             
                 print(counts)
 
             prev_arr = arr
+
+        save_histogram_from_bins(counts)
 
     def enable_roi(self):
         """Enable ROI selection mode."""

@@ -72,7 +72,7 @@ class FramePCA:
 
             self.eigenvector = eigenvector
 
-        print(frame_t.shape, roi_t.shape)
+        # print(frame_t.shape, roi_t.shape)
 
         # pixelwise subtraction
         if entire_frame:
@@ -104,11 +104,13 @@ class FramePCA:
         pca_t, pca_tn1 = (pca_t - pca_t.min()) / (pca_t.max() - pca_t.min()) * 200, (pca_tn1 - pca_tn1.min()) / (pca_tn1.max() - pca_tn1.min()) * 200
         diff = pca_t - pca_tn1
         diff = np.abs(diff)
+
+        # doubt in normalization here
         diff = (diff - diff.min()) / (diff.max() - diff.min()) * 255
 
         if get_histogram_data:
             bin_edges = np.linspace(0, 256, 65)
-            counts, _ = np.histogram(data, bin_edges)
+            counts, _ = np.histogram(diff, bin_edges)
             return counts
 
         self.update_histogram(diff)
