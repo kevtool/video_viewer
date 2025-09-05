@@ -489,7 +489,7 @@ class Y4MPlayer(QWidget):
                 counts += self.frame_pca.patch_pca(prev_arr, arr, self.video_label.topleft, patch_size=128, entire_frame=False,
                                          get_histogram_data=True)
             
-                print(counts)
+                # print(counts)
 
             prev_arr = arr
 
