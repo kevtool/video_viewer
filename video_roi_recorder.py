@@ -384,7 +384,7 @@ class Y4MPlayer(QWidget):
             pc = pc.reshape(h, w) 
             pc = np.stack([pc, pc, pc], axis=-1)
             arr = np.clip(pc, 0, 255)
-            arr = (arr - arr.min()) / (arr.max() - arr.min()) * 200
+            arr = (arr - arr.min()) / (arr.max() - arr.min()) * 255
             arr = arr.astype(np.uint8)
 
         # Diff modes

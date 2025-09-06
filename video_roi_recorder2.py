@@ -414,7 +414,7 @@ class Y4MPlayer(QWidget):
             arr = np.stack([pc, pc, pc], axis=-1)
             arr = np.clip(arr, 0, 255)
             roi = arr[y0:y1, x0:x1]
-            arr = (arr - roi.min()) / (roi.max() - roi.min()) * 255
+            arr = (arr - roi.min()) / (np.percentile(roi, 99) - roi.min()) * 255
 
             print(arr[y0:y1, x0:x1].min(), arr[y0:y1, x0:x1].max(), arr.min(), arr.max())
             arr = np.clip(arr, 0, 255)

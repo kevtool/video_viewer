@@ -83,7 +83,7 @@ class FramePCA:
             pca_tn1 = pca_tn1.reshape(frame_tn1.shape[0], frame_tn1.shape[1])
 
             pca_t, pca_tn1 = np.clip(pca_t, 0, 255), np.clip(pca_tn1, 0, 255)
-            pca_t, pca_tn1 = (pca_t - pca_t.min()) / (pca_t.max() - pca_t.min()) * 200, (pca_tn1 - pca_tn1.min()) / (pca_tn1.max() - pca_tn1.min()) * 200
+            pca_t, pca_tn1 = (pca_t - pca_t.min()) / (pca_t.max() - pca_t.min()) * 255, (pca_tn1 - pca_tn1.min()) / (pca_tn1.max() - pca_tn1.min()) * 255
             diff = pca_t - pca_tn1
             diff = np.abs(diff)
 
@@ -101,7 +101,7 @@ class FramePCA:
         pca_tn1 = pca_tn1.reshape(patch_size, patch_size)
 
         pca_t, pca_tn1 = np.clip(pca_t, 0, 255), np.clip(pca_tn1, 0, 255)
-        pca_t, pca_tn1 = (pca_t - pca_t.min()) / (pca_t.max() - pca_t.min()) * 200, (pca_tn1 - pca_tn1.min()) / (pca_tn1.max() - pca_tn1.min()) * 200
+        pca_t, pca_tn1 = (pca_t - pca_t.min()) / (pca_t.max() - pca_t.min()) * 255, (pca_tn1 - pca_tn1.min()) / (pca_tn1.max() - pca_tn1.min()) * 255
         diff = pca_t - pca_tn1
         diff = np.abs(diff)
 
