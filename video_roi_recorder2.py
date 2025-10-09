@@ -12,22 +12,21 @@ from PyQt5.QtWidgets import (
     QMessageBox, QSizePolicy, QGridLayout
 )
 
-NUM_MODES = 7
+from patch_pca import FramePCA
+from utils import save_histogram_from_bins
+
+NUM_MODES = 5
 ORIGINAL_MODE = 0
-Y_DIFF_MODE = 1
-U_DIFF_MODE = 2
-V_DIFF_MODE = 3
-PCA1_MODE = 4
-PCA2_MODE = 5
-PCA3_MODE = 6
+PCA_MODE = 1
+PCA_DIFF_1_MODE = 2 # t and t+1
+PCA_DIFF_2_MODE = 3 # t and t+2
+PCA_DIFF_3_MODE = 4 # t and t+3
 mode_txt = [
     'Original',
-    'Y-Diff',
-    'U-Diff',
-    'V-Diff',
     'PCA1',
-    'PCA2',
-    'PCA3'
+    'PCA1-Diff, t+1',
+    'PCA1-Diff, t+2',
+    'PCA1-Diff, t+3'
 ]
 
 class VideoLabel(QLabel):
@@ -86,12 +85,15 @@ class VideoLabel(QLabel):
             p1, p2 = self.origin, event.pos()
             o1 = self.map_to_original(p1)
             o2 = self.map_to_original(p2)
+
             if o1 and o2:
                 x0, y0 = o1
                 x1, y1 = o2
                 self.topleft = (min(x0, x1), min(y0, y1))
                 self.bottomright = (max(x0, x1), max(y0, y1))
                 print(f"[INFO] ROI set to {self.topleft} → {self.bottomright}")
+                self.player.gethist_btn.setEnabled(True)
+            
             self.player.roi_mode = False
             self.player.update_display_frame(self.player.current_frame)
         else:
@@ -126,9 +128,13 @@ class Y4MPlayer(QWidget):
         self.record_end_frame = None
         self.output_format = 'y4m'
         self.show_mode = ORIGINAL_MODE
-        self.next_frame_buffer = None
+        # self.next_frame_buffer = None
+        self.frames = [None] * 4
         self.eigenvectors = None
         self.frozen_eigenvecs = False
+
+        self.frame_pca = FramePCA()
+        self.frame_pca.initialize_histogram()
 
         # -- Video display widgets --
 
@@ -165,13 +171,15 @@ class Y4MPlayer(QWidget):
         self.sw_format_btn = QPushButton("Output: Y4M")
 
         # -- Control buttons second row --
+        self.gethist_btn   = QPushButton("Compute Histogram")
         self.show_mode_btn = QPushButton(mode_txt[self.show_mode])
         self.eigenvec_btn  = QPushButton("Lock Eigenv's")
 
         for btn in (
             self.play_btn, self.rewind_btn, self.forward_btn,
             self.roi_btn, self.zoom_btn, self.reset_btn,
-            self.rec_btn, self.sw_format_btn, self.show_mode_btn
+            self.rec_btn, self.sw_format_btn, self.gethist_btn,
+            self.show_mode_btn,
         ):
             btn.setEnabled(False)
 
@@ -192,8 +200,9 @@ class Y4MPlayer(QWidget):
         ctrl_layout.addWidget(self.sw_format_btn, 0, 9)
 
         # === Second Row ===
+        ctrl_layout.addWidget(self.gethist_btn,   1, 7)
         ctrl_layout.addWidget(self.show_mode_btn, 1, 8)
-        ctrl_layout.addWidget(self.eigenvec_btn, 1, 9)
+        ctrl_layout.addWidget(self.eigenvec_btn,  1, 9)
 
         # Assemble main layout
         layout = QVBoxLayout(self)
@@ -211,6 +220,7 @@ class Y4MPlayer(QWidget):
         self.reset_btn.clicked.connect(self.clear_zoom)
         self.rec_btn.clicked.connect(self.toggle_recording)
         self.sw_format_btn.clicked.connect(self.switch_format)
+        self.gethist_btn.clicked.connect(self.compute_histogram)
         self.show_mode_btn.clicked.connect(self.toggle_y_view)
         self.eigenvec_btn.clicked.connect(self.toggle_eigenvecs)
 
@@ -236,12 +246,19 @@ class Y4MPlayer(QWidget):
         first = next(self.frame_iter)
         self.video_label.set_original_size(first.width, first.height)
         self.current_frame = first
-        self.next_frame_buffer = next(self.frame_iter)  # prefetch next frame
+
+        
+        for i in range(1, 4):
+            try:
+                self.frames[i] = next(self.frame_iter)
+            except StopIteration:
+                self.frames[i] = None
+
         self.global_frame_number = 0
         self.update_display_frame(first)
 
         # reset iterator and enable controls
-        self.frame_iter = self.container.decode(video=0)
+        # self.frame_iter = self.container.decode(video=0)
         for btn in (
             self.play_btn, self.rewind_btn, self.forward_btn, 
             self.roi_btn, self.zoom_btn, self.reset_btn, self.rec_btn,
@@ -288,24 +305,29 @@ class Y4MPlayer(QWidget):
             self.global_frame_number = int(round(frame.time * self.fps))
             if self.global_frame_number >= target_frame:
                 self.current_frame = frame
-                try:
-                    self.next_frame_buffer = next(self.frame_iter)
-                except StopIteration:
-                    self.next_frame_buffer = None
+
+
+                for i in range(1, 4):
+                    try:
+                        self.frames[i] = next(self.frame_iter)
+                    except StopIteration:
+                        self.frames[i] = None
                 self.update_display_frame(self.current_frame)
                 break
 
     def next_frame(self):
         """Advance one frame, record if active, then render update."""
-        if self.next_frame_buffer is None:
+        if self.frames[1] is None:
             self.toggle_play_pause()
             return
     
-        self.current_frame = self.next_frame_buffer
+        self.current_frame = self.frames[1]
+        for i in range(1, 3):
+            self.frames[i] = self.frames[i + 1]
         try:
-            self.next_frame_buffer = next(self.frame_iter)
+            self.frames[3] = next(self.frame_iter)
         except StopIteration:
-            self.next_frame_buffer = None
+            self.frames[3] = None
 
         self.global_frame_number = int(round(self.current_frame.time * self.fps))
 
@@ -340,9 +362,25 @@ class Y4MPlayer(QWidget):
         h, w, _ = arr.shape
 
         # PCA mode
-        if self.show_mode in (PCA1_MODE, PCA2_MODE, PCA3_MODE) and self.video_label.topleft and self.video_label.bottomright:
+        if self.show_mode == PCA_DIFF_1_MODE and self.video_label.topleft and (self.frames[1] is not None):
 
-            # calculate expectation in the ROI
+            next_arr = self.frames[1].to_ndarray(format='rgb24')
+            arr = self.frame_pca.patch_pca(arr, next_arr, self.video_label.topleft, patch_size=128, entire_frame=True)
+
+        elif self.show_mode == PCA_DIFF_2_MODE and self.video_label.topleft and (self.frames[2] is not None):
+
+            next_arr = self.frames[2].to_ndarray(format='rgb24')
+            arr = self.frame_pca.patch_pca(arr, next_arr, self.video_label.topleft, patch_size=128, entire_frame=True)
+
+        elif self.show_mode == PCA_DIFF_3_MODE and self.video_label.topleft and (self.frames[3] is not None):
+
+            next_arr = self.frames[3].to_ndarray(format='rgb24')
+            arr = self.frame_pca.patch_pca(arr, next_arr, self.video_label.topleft, patch_size=128, entire_frame=True)
+
+            
+
+        elif self.show_mode == PCA_MODE and self.video_label.topleft and self.video_label.bottomright:
+
             x0, y0 = self.video_label.topleft
             x1, y1 = self.video_label.bottomright
             roi = arr[y0:y1, x0:x1]
@@ -368,59 +406,19 @@ class Y4MPlayer(QWidget):
             else:
                 eigenvectors = self.eigenvectors
 
-            if self.show_mode == PCA1_MODE:
-                eigenvector = eigenvectors[0, :]
-            elif self.show_mode == PCA2_MODE:
-                eigenvector = eigenvectors[1, :]
-            elif self.show_mode == PCA3_MODE:
-                eigenvector = eigenvectors[2, :]
-            else:
-                raise ValueError("Invalid mode")
-            
-            print(eigenvector)
-            
+            eigenvector = eigenvectors[0, :]
+                        
             pixels = arr.reshape(-1, 3).T - mean_color
             pc = pixels.T @ eigenvector 
             pc = pc.reshape(h, w) 
-            pc = np.stack([pc, pc, pc], axis=-1)
-            arr = np.clip(pc, 0, 255)
-            arr = (arr - arr.min()) / (arr.max() - arr.min()) * 255
+            arr = np.stack([pc, pc, pc], axis=-1)
+            arr = np.clip(arr, 0, 255)
+            roi = arr[y0:y1, x0:x1]
+            arr = (arr - roi.min()) / (np.percentile(roi, 99) - roi.min()) * 255
+
+            print(arr[y0:y1, x0:x1].min(), arr[y0:y1, x0:x1].max(), arr.min(), arr.max())
+            arr = np.clip(arr, 0, 255)
             arr = arr.astype(np.uint8)
-
-        # Diff modes
-        if self.next_frame_buffer is not None:
-            yuv = frame.to_ndarray(format='yuv420p')
-            y = yuv[0:h, :]
-            u = yuv[h:h + h // 4, :w // 2]
-            v = yuv[h + h // 4:, :w // 2]
-            u, v = [cv2.resize(ch, (w, h), interpolation=cv2.INTER_LINEAR) for ch in (u, v)]
-
-            next_yuv = self.next_frame_buffer.to_ndarray(format='yuv420p')
-            next_y = next_yuv[0:h, :]
-            next_u = next_yuv[h:h + h // 4, :w // 2]
-            next_v = next_yuv[h + h // 4:, :w // 2]
-            next_u, next_v = [cv2.resize(ch, (w, h), interpolation=cv2.INTER_LINEAR) for ch in (next_u, next_v)]
-
-            y_diff = cv2.absdiff(y, next_y)
-            u_diff = np.abs(u.astype(np.int16) - next_u).astype(np.uint8) * 10
-            v_diff = np.abs(v.astype(np.int16) - next_v).astype(np.uint8) * 10
-
-            if self.show_mode == Y_DIFF_MODE:
-                arr = np.stack([y_diff] * 3, axis=-1)
-            elif self.show_mode == U_DIFF_MODE:
-                arr = np.stack([u_diff] * 3, axis=-1)
-            elif self.show_mode == V_DIFF_MODE:
-                arr = np.stack([v_diff] * 3, axis=-1)
-
-        else:
-            # Regular RGB display
-            
-            if self.next_frame_buffer is not None:
-                next_arr = self.next_frame_buffer.to_ndarray(format='rgb24')
-                # Now you have both `arr` and `next_arr` as numpy arrays (RGB)
-                # Do whatever comparison, optical flow, prediction, etc. you need
-            else:
-                next_arr = None
 
         return arr
 
@@ -475,6 +473,27 @@ class Y4MPlayer(QWidget):
                 Qt.SmoothTransformation
             )
             self.zoom_label.setPixmap(zp)
+
+    def compute_histogram(self):
+        if not self.container or not self.video_label.topleft:
+            return
+        
+        prev_arr = None
+        frame_iter = self.container.decode(video=0)
+        counts = np.zeros((64,), dtype=np.int32)
+
+        for frame in frame_iter:
+            arr = frame.to_ndarray(format='rgb24')
+
+            if prev_arr is not None:
+                counts += self.frame_pca.patch_pca(prev_arr, arr, self.video_label.topleft, patch_size=128, entire_frame=False,
+                                         get_histogram_data=True)
+            
+                # print(counts)
+
+            prev_arr = arr
+
+        save_histogram_from_bins(counts)
 
     def enable_roi(self):
         """Enable ROI selection mode."""
@@ -626,9 +645,11 @@ class Y4MPlayer(QWidget):
         if self.frozen_eigenvecs:
             self.frozen_eigenvecs = False
             self.eigenvec_btn.setText("Lock Eigenv's")
+            self.frame_pca.set_freeze_eigenvectors(False)
         else:
             self.frozen_eigenvecs = True
             self.eigenvec_btn.setText("Unlock Eigenv's")
+            self.frame_pca.set_freeze_eigenvectors(True)
             
 
     def switch_format(self):

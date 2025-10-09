@@ -4,3 +4,8 @@ dataset/
 venv*
 .DS_Store
 __pycache__/
+
+
+
+# temporary
+histogram.png
