@@ -479,6 +479,10 @@ class Y4MPlayer(QWidget):
             return
         
         prev_arr = None
+
+        self.container.seek(0, any_frame=False, backward=True, stream=self.video_stream)
+        frame_iter = self.container.decode(video=0)
+        
         frame_iter = self.container.decode(video=0)
         counts = np.zeros((64,), dtype=np.int32)
 
