@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video_distortion"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = [
+    "opencv-python>=4.12.0.88",
+    "pyqt6>=6.10.0",
+]
+
+[tool.setuptools]
+packages = ["video_viewer"]
+
+[tool.setuptools.package-dir]
+"" = "src"
