@@ -11,6 +11,7 @@ from PyQt6.QtGui import QImage, QPixmap
 from video_viewer.clickable_label import ClickableLabel
 from video_viewer.box import DistortionBox, Zoombox
 from video_viewer.project_model import ProjectModel
+from video_viewer.qtroles import PATH_ROLE, ITEM_TYPE_ROLE, DATA_ROLE
 
 
 class VideoViewer(QWidget):
@@ -20,10 +21,8 @@ class VideoViewer(QWidget):
             self.setWindowTitle("Video Zoom Tool")
 
         self.model = project_model
-        self.model.video_selected.connect(self.load_video_from_model)
-        self.current_video = None
+        self.model.file_selected.connect(self.load_video_from_model)
 
-        self.video_path = None
         self.cap = None
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_frame_timer)
@@ -49,7 +48,7 @@ class VideoViewer(QWidget):
         self.splitter.splitterMoved.connect(lambda pos, idx: self.render_frames())
 
         # Buttons
-        self.play_button = QPushButton("⏯ Play / Pause")
+        self.play_button = QPushButton("⏸ Pause")
         self.rewind_button = QPushButton("⏪ Rewind")
         self.forward_button = QPushButton("⏩ Forward")
         self.zoom_in_button = QPushButton("➕ Zoom In")
@@ -61,6 +60,9 @@ class VideoViewer(QWidget):
         self.zoom_in_button.clicked.connect(self.zoom_in)
         self.zoom_out_button.clicked.connect(self.zoom_out)
 
+        self.play_button.setEnabled(False)
+        self.rewind_button.setEnabled(False)
+        self.forward_button.setEnabled(False)
         self.zoom_in_button.setEnabled(False)
         self.zoom_out_button.setEnabled(False)
 
@@ -80,15 +82,16 @@ class VideoViewer(QWidget):
         self.drag_start_pos = None  # initial mouse position
         self.drag_start_box = None
 
-    def load_video_from_model(self, video_data):
-        self.current_video = video_data
-        self.load_video(video_data["path"])
+    def load_video_from_model(self, flags):
+        if flags["active_video_changed"]:
+            self.load_video(self.model.active_video.data(0, PATH_ROLE))
+        elif flags["boxes_changed"] or flags["selected_box_changed"]:
+            self.render_frames()
 
     def load_video(self, path):
         if self.cap:
             self.cap.release()
-        self.video_path = path
-        self.cap = cv2.VideoCapture(self.video_path)
+        self.cap = cv2.VideoCapture(path)
         self.current_rgb_frame = None
         # start timer for playback (will call update_frame_timer)
         self.timer.start(30)
@@ -97,6 +100,9 @@ class VideoViewer(QWidget):
         if self.current_rgb_frame is None:
             return
         
+        self.play_button.setEnabled(True)
+        self.rewind_button.setEnabled(True)
+        self.forward_button.setEnabled(True)
         self.zoom_in_button.setEnabled(True)
         self.zoom_out_button.setEnabled(True)
 
@@ -138,10 +144,12 @@ class VideoViewer(QWidget):
             # ensure we are in "playing" state and timer is running
             self.paused = False
             self.timer.start(30)
+            self.play_button.setText("⏸ Pause")
         else:
             # pause playback
             self.paused = True
             self.timer.stop()
+            self.play_button.setText("▶ Play")
 
     def rewind_video(self):
         """Go back 1 second (adjustable)."""
@@ -234,10 +242,16 @@ class VideoViewer(QWidget):
         ret, frame = self.cap.read()
         if not ret:
             # stop timer and keep last frame (if any)
-            self.timer.stop()
+            self.handle_end_of_video()
             return
         self.current_rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         self.render_frames()
+
+    def handle_end_of_video(self):
+        """Handle end-of-video situation."""
+        self.timer.stop()
+        self.paused = True
+        self.play_button.setText("▶ Play")
 
     def update_frame_timer(self):
         """Called on every timer tick when playing (advances playback)."""
@@ -245,7 +259,7 @@ class VideoViewer(QWidget):
             return
         ret, frame = self.cap.read()
         if not ret:
-            self.timer.stop()
+            self.handle_end_of_video()
             return
         self.current_rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         self.render_frames()
@@ -280,17 +294,28 @@ class VideoViewer(QWidget):
             thickness=2,         # thickness in pixels
         )
 
-        if self.current_video:
-            for box in self.current_video["boxes"]:
-                x1, y1 = int(box["x"]), int(box["y"])
-                x2, y2 = x1 + int(box["width"]), y1 + int(box["height"])
+        zoomed_x1, zoomed_y1 = x1, y1
+        zoomed_x2, zoomed_y2 = x2, y2
+
+        if self.model.boxes:
+            for box in self.model.boxes:
+                box_data = box.data(2, DATA_ROLE)
+                x1, y1 = int(box_data["x"]), int(box_data["y"])
+                x2, y2 = x1 + int(box_data["width"]), y1 + int(box_data["height"])
                 cv2.rectangle(rgb_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
+                if box == self.model.selected_box:
+                    zoomed_x1, zoomed_y1 = x1, y1
+                    zoomed_x2, zoomed_y2 = x2, y2
+
+                    # distortion box must be square. set height equal to width so that zoomed view is also square.
+                    h = w
+
         # If the crop would be invalid for any reason, fall back to whole frame
-        if x2 <= x1 or y2 <= y1:
+        if zoomed_x2 <= zoomed_x1 or zoomed_y2 <= zoomed_y1:
             zoomed = rgb_frame
         else:
-            zoomed = rgb_frame[y1:y2, x1:x2]
+            zoomed = rgb_frame[zoomed_y1:zoomed_y2, zoomed_x1:zoomed_x2]
             # resize zoomed region up to original frame size for quality before final label scaling
             zoomed = cv2.resize(zoomed, (w, h), interpolation=cv2.INTER_CUBIC)
 

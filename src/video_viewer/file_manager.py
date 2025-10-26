@@ -1,18 +1,53 @@
-import sys, os, json
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QPushButton,
-    QHBoxLayout, QVBoxLayout, QTreeWidget, QTreeWidgetItem,
-    QMenu, QFileDialog, QMessageBox, QInputDialog
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QTreeWidget,
+    QTreeWidgetItem, QApplication, QInputDialog, QMenu
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QPoint
+import sys, os
 
 from video_viewer.project_model import ProjectModel
+from video_viewer.qtroles import PATH_ROLE, ITEM_TYPE_ROLE, DATA_ROLE
 
+
+class FileSystemWidget(QTreeWidget):
+    """A QTreeWidget subclass that validates drag-and-drop rules."""
+
+    def dropEvent(self, event):
+        # Check proposed drop target
+        target_item = self.itemAt(event.position().toPoint())
+        selected_items = self.selectedItems()
+
+        for item in selected_items:
+            item_type = item.data(1, ITEM_TYPE_ROLE)
+            target_type = target_item.data(1, ITEM_TYPE_ROLE) if target_item else None
+
+            # Folder rules
+            if item_type == "folder":
+                if target_item is not None and target_type != "folder":
+                    event.ignore()
+                    return
+
+            # Video rules
+            elif item_type == "video":
+                if target_item is not None and target_type != "folder":
+                    event.ignore()
+                    return
+
+            # Subitem / box rules
+            elif item_type == "box":
+                if target_item is None or target_type != "video":
+                    event.ignore()
+                    return
+
+        super().dropEvent(event) 
 
 class FileManager(QWidget):
-    def __init__(self, project_model: ProjectModel, parent=None):
+    def __init__(self, project_model=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("File Manager")
+        self.resize(600, 400)
+
+        self.model = project_model
 
         # Layout setup
         self.layout = QVBoxLayout(self)
@@ -36,118 +71,174 @@ class FileManager(QWidget):
         self.load_project_btn.clicked.connect(self.load_project)
         self.buttons_layout.addWidget(self.load_project_btn)
 
-        # Tree widget for files & subitems
-        self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["File / Subitem"])
-        self.layout.addWidget(self.tree)
+        # File tree
+        self.file_tree = FileSystemWidget()
+        self.file_tree.setHeaderLabel("Files")
+        self.file_tree.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
+        self.file_tree.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
+        self.file_tree.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.file_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.file_tree.itemDoubleClicked.connect(self.on_item_activated)
+        self.file_tree.customContextMenuRequested.connect(self.show_context_menu)
+        self.layout.addWidget(self.file_tree)
 
-        # Context menu
-        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.tree.customContextMenuRequested.connect(self.show_context_menu)
-        self.tree.itemDoubleClicked.connect(self.on_item_activated)
-
-        self.model = project_model
-        self.model.data_changed.connect(self.refresh_tree)
-
-    def refresh_tree(self):
-        self.tree.clear()
-        for video in self.model.videos:
-            video_item = QTreeWidgetItem([os.path.basename(video["path"])])
-            video_item.setData(0, Qt.ItemDataRole.UserRole, video["path"])
-            for box in video["boxes"]:
-                subitem = QTreeWidgetItem([box.get("name", "Box")])
-                subitem.setData(0, Qt.ItemDataRole.UserRole, box)
-                video_item.addChild(subitem)
-            self.tree.addTopLevelItem(video_item)
-        
-    def show_context_menu(self, pos):
-        item = self.tree.itemAt(pos)
-        menu = QMenu(self)
-
-        if item:
-            add_subitem_action = menu.addAction("Add Subitem")
-            remove_action = menu.addAction("Remove Item")
-            chosen = menu.exec(self.tree.mapToGlobal(pos))
-
-            if chosen == add_subitem_action:
-                self.add_subitem(item)
-            elif chosen == remove_action:
-                self.remove_item(item)
-        else:
-            # right-clicked empty area
-            add_file_action = menu.addAction("Add File(s)")
-            chosen = menu.exec(self.tree.mapToGlobal(pos))
-            if chosen == add_file_action:
-                self.upload_files()
+    # ------------------ File & Folder Management ------------------
 
     def upload_files(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Select File(s)")
-        for path in files:
-            self.model.add_video(path)
+        if files:
+            for file_path in files:
+                file_item = QTreeWidgetItem([os.path.basename(file_path)])
+                file_item.setData(0, PATH_ROLE, file_path)  # Store full path
+                file_item.setData(1, ITEM_TYPE_ROLE, "video")  # Mark as video
+                self.file_tree.addTopLevelItem(file_item)
 
     def add_folder(self):
-        folder_name, ok = QInputDialog.getText(self, "New Folder", "Enter folder name:")
+        folder_name, ok = QInputDialog.getText(self, "Folder Name", "Enter folder name:")
         if ok and folder_name:
             folder_item = QTreeWidgetItem([folder_name])
-            # folder_item.setIcon(0, self.icon_folder)
-            self.tree.addTopLevelItem(folder_item)
+            folder_item.setData(1, ITEM_TYPE_ROLE, "folder")
+            folder_item.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
+            self.file_tree.addTopLevelItem(folder_item)
 
-    def add_subitem(self, parent_item):
+    def save_project(self):
+        print("Project saved (stub).")
+
+    def load_project(self):
+        print("Project loaded (stub).")
+
+    # ------------------ Distortion Box ------------------
+
+    def add_distortion_box(self, parent_item):
+        item_type = parent_item.data(1, ITEM_TYPE_ROLE)
+        if item_type != "video":
+            return  # Only add boxes to videos
+
         name, ok = QInputDialog.getText(self, "Box Name", "Enter box label:")
         if not ok or not name:
             return
 
-        # find which video this belongs to
-        video_path = parent_item.data(0, Qt.ItemDataRole.UserRole)
-        video_index = next(
-            (i for i, v in enumerate(self.model.videos) if v["path"] == video_path),
-            None
-        )
-        if video_index is None:
+        box_item = QTreeWidgetItem([name])
+        box_item.setData(1, ITEM_TYPE_ROLE, "box")
+        box_item.setData(2, DATA_ROLE, {"name": name, "x": 0, "y": 0, "width": 128, "height": 128})
+        parent_item.addChild(box_item)
+        parent_item.setExpanded(True)
+
+
+        if self.model and self.model.active_video == parent_item:
+            self.model.add_box_to_active_video(box_item)
+
+    # ------------------ Context Menu ------------------
+
+    def show_context_menu(self, pos: QPoint):
+        item = self.file_tree.itemAt(pos)
+        if not item:
             return
 
-        box_data = {"name": name, "x": 0, "y": 0, "width": 128, "height": 128}
-        self.model.add_box(video_index, box_data)
+        menu = QMenu(self)
 
+        item_type = item.data(1, ITEM_TYPE_ROLE)
+        if item_type == "video":
+            menu.addAction("Add Distortion Box", lambda: self.add_distortion_box(item))
+        menu.addAction("Remove Item", lambda: self.remove_item(item))
+
+        menu.exec(self.file_tree.viewport().mapToGlobal(pos))
+
+    # ------------------ Item Activation ------------------
+
+    def on_item_activated(self, item):
+        item_type = item.data(1, ITEM_TYPE_ROLE)
+        if item_type == "video":
+            video_item = item
+
+            # Collect all boxes of this video
+            boxes = []
+            for i in range(video_item.childCount()):
+                child = video_item.child(i)
+                if child.data(1, ITEM_TYPE_ROLE) == "box":
+                    boxes.append(child)
+
+            # Inform the model
+            if self.model:
+                self.model.set_active_video(video_item, boxes)
+
+        elif item_type == "box":
+            # The box itself
+            box_item = item
+
+            # Its parent video
+            video_item = box_item.parent()
+            if not video_item or video_item.data(1, ITEM_TYPE_ROLE) != "video":
+                return  # Safety check
+
+            # Collect all boxes of this video
+            boxes = []
+            for i in range(video_item.childCount()):
+                child = video_item.child(i)
+                if child.data(1, ITEM_TYPE_ROLE) == "box":
+                    boxes.append(child)
+
+            # Inform the model
+            if self.model:
+                self.model.set_active_video(video_item, boxes, selected_box=box_item)
+
+    
+    def collect_videos(self, parent_item):
+        videos = []
+        for i in range(parent_item.childCount()):
+            child = parent_item.child(i)
+            child_type = child.data(1, ITEM_TYPE_ROLE)
+            if child_type == "video":
+                videos.append(child)
+            elif child_type == "folder":
+                videos.extend(self.collect_videos(child))
+        return videos
+    
     def remove_item(self, item):
         parent = item.parent()
         if parent:
-            # subitem (box)
-            video_path = parent.data(0, Qt.ItemDataRole.UserRole)
-            video_index = next(
-                (i for i, v in enumerate(self.model.videos) if v["path"] == video_path),
-                None
-            )
-            box_index = parent.indexOfChild(item)
-            self.model.remove_box(video_index, box_index)
+            parent.removeChild(item)
         else:
-            # top-level video
-            index = self.tree.indexOfTopLevelItem(item)
-            del self.model.videos[index]
-            self.model.data_changed.emit()
+            self.file_tree.takeTopLevelItem(self.file_tree.indexOfTopLevelItem(item))
 
-    def on_item_activated(self, item, column):
-        path = item.data(0, Qt.ItemDataRole.UserRole)
-        # check if item data is a string (not a dict like DistortionBox is stored) 
-        if isinstance(path, str):
-            _, ext = os.path.splitext(path or "")
-            if ext.lower() in (".mp4", ".avi", ".mov", ".mkv"):
-                video_data = next((v for v in self.model.videos if v["path"] == path), None)
-                if video_data:
-                    self.model.video_selected.emit(video_data)
+        item_type = item.data(1, ITEM_TYPE_ROLE)
+        if item_type == "video":
+            video_item = item
+
+            # Inform the model
+            if self.model.active_video == video_item:
+                self.model.set_active_video(None, None)
+
+        elif item_type == "box":
+            box_item = item
+            video_item = parent
+            if not video_item or video_item.data(1, ITEM_TYPE_ROLE) != "video":
+                return  # Safety check
+            print("Box being removed was selected; clearing selection.")
+
+            # Inform the model
+            if self.model.active_video == video_item:
+                # Collect all boxes of this video
+                boxes = []
+                for i in range(video_item.childCount()):
+                    child = video_item.child(i)
+                    if child.data(1, ITEM_TYPE_ROLE) == "box":
+                        boxes.append(child)
+                self.model.set_active_video(video_item, boxes, selected_box=None)
+
+        elif item_type == "folder":
+            # Collect all videos under this folder
+            videos = self.collect_videos(item)
+            for video in videos:
+                if self.model.active_video == video:
+                    self.model.set_active_video(None, None)
+
         
-    def save_project(self):
-        file_name, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "JSON Files (*.json)")
-        if not file_name:
-            return
-        with open(file_name, "w") as f:
-            json.dump({"videos": self.model.videos}, f, indent=2)
 
-    def load_project(self):
-        file_name, _ = QFileDialog.getOpenFileName(self, "Load Project", "", "JSON Files (*.json)")
-        if not file_name:
-            return
-        with open(file_name, "r") as f:
-            data = json.load(f)
-        self.model.videos = data.get("videos", [])
-        self.model.data_changed.emit()
+# ------------------ Run App ------------------
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    fm = FileManager()
+    fm.show()
+    sys.exit(app.exec())
