@@ -1,8 +1,13 @@
 from PyQt6.QtCore import QObject, pyqtSignal
 
 class ProjectModel(QObject):
-    data_changed = pyqtSignal()     # emitted when any data changes
+
+    # Emitted from ProjectModel
     file_selected = pyqtSignal(dict)  # emitted when a video is selected (with boxes)
+
+    # Emitted from VideoViewer
+    video_loaded = pyqtSignal(str)  # emitted when a video is loaded
+    video_cleared = pyqtSignal()  # emitted when a video is cleared
 
     def __init__(self):
         super().__init__()
@@ -32,7 +37,6 @@ class ProjectModel(QObject):
             "selected_box_changed": s_flag,
         }
         self.file_selected.emit(video_data)
-        # self.data_changed.emit()
 
     def add_box_to_active_video(self, box_item):
         """Add a box to the currently active video."""

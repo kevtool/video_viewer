@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QTreeWidget,
-    QTreeWidgetItem, QApplication, QInputDialog, QMenu
+    QTreeWidgetItem, QApplication, QInputDialog, QMenu, QLabel
 )
 from PyQt6.QtCore import Qt, QPoint
 import sys, os
@@ -49,10 +49,16 @@ class FileManager(QWidget):
 
         self.model = project_model
 
+        self.model.video_loaded.connect(self.on_video_loaded)
+        self.model.video_cleared.connect(self.on_video_cleared)
+
         # Layout setup
         self.layout = QVBoxLayout(self)
+        self.status_label = QLabel("No files loaded.")
         self.buttons_layout = QHBoxLayout()
         self.layout.addLayout(self.buttons_layout)
+        self.layout.addWidget(self.status_label)
+
 
         # Buttons
         self.upload_files_btn = QPushButton("Upload File(s)")
@@ -87,11 +93,21 @@ class FileManager(QWidget):
     def upload_files(self):
         files, _ = QFileDialog.getOpenFileNames(self, "Select File(s)")
         if files:
+            count = 0
             for file_path in files:
-                file_item = QTreeWidgetItem([os.path.basename(file_path)])
-                file_item.setData(0, PATH_ROLE, file_path)  # Store full path
-                file_item.setData(1, ITEM_TYPE_ROLE, "video")  # Mark as video
-                self.file_tree.addTopLevelItem(file_item)
+                if file_path.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
+                    count += 1
+                    file_item = QTreeWidgetItem([os.path.abspath(file_path)])
+                    file_item.setData(0, PATH_ROLE, file_path)  # Store full path
+                    file_item.setData(1, ITEM_TYPE_ROLE, "video")  # Mark as video
+                    self.file_tree.addTopLevelItem(file_item)
+
+            if count == 0:
+                self.status_label.setText("No valid video files selected.")
+            elif count == 1:
+                self.status_label.setText("Uploaded 1 video.")
+            else:
+                self.status_label.setText(f"Uploaded {count} videos.")
 
     def add_folder(self):
         folder_name, ok = QInputDialog.getText(self, "Folder Name", "Enter folder name:")
@@ -182,6 +198,7 @@ class FileManager(QWidget):
             if self.model:
                 self.model.set_active_video(video_item, boxes, selected_box=box_item)
 
+    # ------------------ Item Removal ------------------
     
     def collect_videos(self, parent_item):
         videos = []
@@ -233,7 +250,12 @@ class FileManager(QWidget):
                 if self.model.active_video == video:
                     self.model.set_active_video(None, None)
 
-        
+    # ------------------ Model Event Handlers ------------------
+    def on_video_loaded(self, video_path):
+        self.status_label.setText(f"Loaded video: {video_path}")
+
+    def on_video_cleared(self):
+        self.status_label.setText("Video cleared.")
 
 # ------------------ Run App ------------------
 

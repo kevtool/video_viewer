@@ -19,7 +19,8 @@ class AnalysisPlatform(QWidget):
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.addWidget(self.file_manager)
         self.splitter.addWidget(self.video_viewer)
-        self.splitter.setSizes([300, 700])
+        self.splitter.setStretchFactor(0, 18)
+        self.splitter.setStretchFactor(1, 82)
 
         layout = QHBoxLayout()
         layout.addWidget(self.splitter)

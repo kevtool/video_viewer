@@ -66,13 +66,23 @@ class VideoViewer(QWidget):
         self.zoom_in_button.setEnabled(False)
         self.zoom_out_button.setEnabled(False)
 
-        # Layouts
+        info_layout = QHBoxLayout()
+        self.coord_label = QLabel("No box selected")
+        self.frame_num_label = QLabel("Frame: 0")
+        info_layout.addWidget(self.coord_label)
+        info_layout.addWidget(self.frame_num_label)
+
         button_layout = QHBoxLayout()
         for btn in (self.play_button, self.rewind_button, self.forward_button,
                     self.zoom_in_button, self.zoom_out_button):
             button_layout.addWidget(btn)
 
+        # the layout
         layout = QVBoxLayout()
+        info_widget = QWidget()
+        info_widget.setLayout(info_layout)
+        info_widget.setFixedHeight(30)
+        layout.addWidget(info_widget)
         layout.addWidget(self.splitter)
         layout.addLayout(button_layout)
         self.setLayout(layout)
@@ -84,7 +94,10 @@ class VideoViewer(QWidget):
 
     def load_video_from_model(self, flags):
         if flags["active_video_changed"]:
-            self.load_video(self.model.active_video.data(0, PATH_ROLE))
+            if self.model.active_video is None:
+                self.clear_video()
+            else:
+                self.load_video(self.model.active_video.data(0, PATH_ROLE))
         elif flags["boxes_changed"] or flags["selected_box_changed"]:
             self.render_frames()
 
@@ -130,6 +143,24 @@ class VideoViewer(QWidget):
             )
 
         self.render_frames()
+        self.model.video_loaded.emit(self.model.active_video.data(0, PATH_ROLE))
+
+    def clear_video(self):
+        if self.cap:
+            self.cap.release()
+            self.cap = None
+        self.current_rgb_frame = None
+        self.timer.stop()
+        self.play_button.setEnabled(False)
+        self.rewind_button.setEnabled(False)
+        self.forward_button.setEnabled(False)
+        self.zoom_in_button.setEnabled(False)
+        self.zoom_out_button.setEnabled(False)
+        self.full_view.setPixmap(QPixmap())
+        self.zoom_view.setPixmap(QPixmap())
+        self.full_view.setText("Full Video View")
+        self.zoom_view.setText("Zoomed View")
+        self.model.video_cleared.emit()
 
     def toggle_play(self):
         # Toggle paused state. If we are switching to play (unpaused)
@@ -190,21 +221,31 @@ class VideoViewer(QWidget):
         self.render_frames()
 
     def start_drag(self, pos: QPointF):
-        if not self.zoombox:
+        if self.current_rgb_frame is None:
             return
+
         self.dragging = True
         self.drag_start_pos = pos
-        self.drag_start_box = (self.zoombox.x, self.zoombox.y)
+        
+        if self.model.selected_box:
+            box_data = self.model.selected_box.data(2, DATA_ROLE)
+            self.drag_target = "distortion"
+            self.drag_start_box = (box_data["x"], box_data["y"])
+
+        elif self.zoombox:
+            self.drag_target = "zoom"
+            self.drag_start_box = (self.zoombox.x, self.zoombox.y)
+        else:
+            self.drag_target = None
 
     def update_drag(self, pos: QPointF):
-        if not self.dragging or not self.zoombox:
+        if not self.dragging or self.drag_target is None:
             return
 
-        # Compute mouse delta in label coordinates
         dx = pos.x() - self.drag_start_pos.x()
         dy = pos.y() - self.drag_start_pos.y()
 
-        # Scale delta to frame coordinates
+        # scale from label pixels to frame coordinates
         label_w, label_h = self.full_view.width(), self.full_view.height()
         frame_h, frame_w, _ = self.current_rgb_frame.shape
         scale_x = frame_w / label_w
@@ -212,17 +253,42 @@ class VideoViewer(QWidget):
         dx_frame = dx * scale_x
         dy_frame = dy * scale_y
 
-        # Move zoombox, clamped to frame boundaries
-        new_x = min(max(0, self.drag_start_box[0] + dx_frame), frame_w - self.zoombox.width)
-        new_y = min(max(0, self.drag_start_box[1] + dy_frame), frame_h - self.zoombox.height)
-        self.zoombox.x = new_x
-        self.zoombox.y = new_y
+        if self.drag_target == "zoom" and self.zoombox:
+            new_x = min(max(0, self.drag_start_box[0] + dx_frame), frame_w - self.zoombox.width)
+            new_y = min(max(0, self.drag_start_box[1] + dy_frame), frame_h - self.zoombox.height)
+            self.zoombox.x = new_x
+            self.zoombox.y = new_y
 
-        # Update display
+        elif self.drag_target == "distortion" and self.model.selected_box is not None:
+            box_data = self.model.selected_box.data(2, DATA_ROLE)
+            new_x = min(max(0, self.drag_start_box[0] + dx_frame), frame_w - box_data["width"])
+            new_y = min(max(0, self.drag_start_box[1] + dy_frame), frame_h - box_data["height"])
+
+            # update model’s box data in-place
+            box_data["x"] = new_x
+            box_data["y"] = new_y
+            self.model.selected_box.setData(2, DATA_ROLE, box_data)
+
         self.render_frames()
+
+    def update_coord_label(self):
+        """Update the coordinate label based on the selected box or zoombox."""
+        if self.model.selected_box is not None:
+            box_data = self.model.selected_box.data(2, DATA_ROLE)
+            x, y = int(box_data["x"]), int(box_data["y"])
+            w, h = int(box_data["width"]), int(box_data["height"])
+            self.coord_label.setText(f"📦 Box: x={x}, y={y}, w={w}, h={h}")
+        elif self.zoombox:
+            self.coord_label.setText(
+                f"🔍 ZoomBox: x={int(self.zoombox.x)}, y={int(self.zoombox.y)}, "
+                f"w={int(self.zoombox.width)}, h={int(self.zoombox.height)}"
+            )
+        else:
+            self.coord_label.setText("No box selected")
 
     def end_drag(self):
         self.dragging = False
+        self.drag_target = None
         self.drag_start_pos = None
         self.drag_start_box = None
 
@@ -302,14 +368,17 @@ class VideoViewer(QWidget):
                 box_data = box.data(2, DATA_ROLE)
                 x1, y1 = int(box_data["x"]), int(box_data["y"])
                 x2, y2 = x1 + int(box_data["width"]), y1 + int(box_data["height"])
-                cv2.rectangle(rgb_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                
 
                 if box == self.model.selected_box:
+                    cv2.rectangle(rgb_frame, (x1, y1), (x2, y2), (0, 50, 255), 2) # blue for selected
                     zoomed_x1, zoomed_y1 = x1, y1
                     zoomed_x2, zoomed_y2 = x2, y2
 
                     # distortion box must be square. set height equal to width so that zoomed view is also square.
                     h = w
+                else:
+                    cv2.rectangle(rgb_frame, (x1, y1), (x2, y2), (0, 255, 0), 2) # green for others
 
         # If the crop would be invalid for any reason, fall back to whole frame
         if zoomed_x2 <= zoomed_x1 or zoomed_y2 <= zoomed_y1:
@@ -335,6 +404,12 @@ class VideoViewer(QWidget):
         # Render both views
         draw_to_label(self.full_view, rgb_frame)
         draw_to_label(self.zoom_view, zoomed)
+
+        # update info bar
+        self.update_coord_label()
+        current_frame = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES))
+        total_frames = int(self.cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        self.frame_num_label.setText(f"Frame: {current_frame} / {total_frames}")
 
 
 # if __name__ == "__main__":
