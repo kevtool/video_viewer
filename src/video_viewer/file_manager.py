@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QTreeWidgetItem, QApplication, QInputDialog, QMenu, QLabel
 )
 from PyQt6.QtCore import Qt, QPoint
-import sys, os
+import sys, os, json
 
 from video_viewer.project_model import ProjectModel
 from video_viewer.qtroles import PATH_ROLE, ITEM_TYPE_ROLE, DATA_ROLE
@@ -117,11 +117,6 @@ class FileManager(QWidget):
             folder_item.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
             self.file_tree.addTopLevelItem(folder_item)
 
-    def save_project(self):
-        print("Project saved (stub).")
-
-    def load_project(self):
-        print("Project loaded (stub).")
 
     # ------------------ Distortion Box ------------------
 
@@ -249,6 +244,68 @@ class FileManager(QWidget):
             for video in videos:
                 if self.model.active_video == video:
                     self.model.set_active_video(None, None)
+
+    # ------------------ Save Project ------------------
+
+    def item_to_dict(self, item):
+        item_dict = {
+            "name": item.text(0),
+            "type": item.data(1, ITEM_TYPE_ROLE),
+            "path": item.data(0, PATH_ROLE),
+            "data": item.data(2, DATA_ROLE),
+            "children": []
+        }
+
+        for i in range(item.childCount()):
+            child = item.child(i)
+            item_dict["children"].append(self.item_to_dict(child))
+
+        return item_dict
+    
+    def dict_to_item(self, data):
+        item = QTreeWidgetItem([data["name"]])
+        item.setData(1, ITEM_TYPE_ROLE, data["type"])
+        if data.get("path"):
+            item.setData(0, PATH_ROLE, data["path"])
+        if data.get("data"):
+            item.setData(2, DATA_ROLE, data["data"])
+
+        for child_data in data.get("children", []):
+            child_item = self.dict_to_item(child_data)
+            item.addChild(child_item)
+        
+        return item
+
+    def save_project(self):
+        file_path, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "Project Files (*.json)")
+        if not file_path:
+            return
+
+        project_data = []
+        for i in range(self.file_tree.topLevelItemCount()):
+            item = self.file_tree.topLevelItem(i)
+            project_data.append(self.item_to_dict(item))
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(project_data, f, indent=4)
+
+        self.status_label.setText(f"Project saved to {file_path}")
+
+    def load_project(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Load Project", "", "Project Files (*.json)")
+        if not file_path:
+            return
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            project_data = json.load(f)
+
+        self.file_tree.clear()
+
+        for item_data in project_data:
+            item = self.dict_to_item(item_data)
+            self.file_tree.addTopLevelItem(item)
+
+        self.status_label.setText(f"Project loaded from {file_path}")
 
     # ------------------ Model Event Handlers ------------------
     def on_video_loaded(self, video_path):
