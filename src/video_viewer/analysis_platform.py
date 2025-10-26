@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (
     QWidget, QApplication, QHBoxLayout, QVBoxLayout, QSplitter
 )
 from PyQt6.QtCore import Qt
+from video_viewer.toolbar import Toolbar
 from video_viewer.file_manager import FileManager
 from video_viewer.video_viewer import VideoViewer
 from video_viewer.project_model import ProjectModel
@@ -13,7 +14,10 @@ class AnalysisPlatform(QWidget):
         # Initialization code for AnalysisPlatform
         self.model = ProjectModel()
 
+        self.toolbar = Toolbar(project_model=self.model, parent=self)
+        self.toolbar.setFixedHeight(40)
         self.file_manager = FileManager(project_model=self.model, parent=self)
+        self.model.file_tree = self.file_manager.file_tree
         self.video_viewer = VideoViewer(project_model=self.model, parent=self)
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -22,7 +26,8 @@ class AnalysisPlatform(QWidget):
         self.splitter.setStretchFactor(0, 18)
         self.splitter.setStretchFactor(1, 82)
 
-        layout = QHBoxLayout()
+        layout = QVBoxLayout()
+        layout.addWidget(self.toolbar)
         layout.addWidget(self.splitter)
         self.setLayout(layout)
 
