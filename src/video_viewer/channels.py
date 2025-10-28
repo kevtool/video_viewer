@@ -1,0 +1,13 @@
+ORIGINAL = 0
+RESIDUE = 1
+
+NUM_CHANNELS = 2
+CHANNEL = {
+    ORIGINAL: "Original",
+    RESIDUE: "Residue",
+}
+
+MIN_FRAME_NUM = {
+    ORIGINAL: 0,
+    RESIDUE: 1,
+}

@@ -7,7 +7,14 @@ import sys, os, json
 
 from video_viewer.project_model import ProjectModel
 from video_viewer.qtroles import PATH_ROLE, ITEM_TYPE_ROLE, DATA_ROLE
+from video_viewer.distortion import Video, Distortion
 
+
+class EnhancedJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (Video, Distortion)):
+            return obj.to_dict()
+        return super().default(obj)
 
 class FileSystemWidget(QTreeWidget):
     """A QTreeWidget subclass that validates drag-and-drop rules."""
@@ -69,13 +76,20 @@ class FileManager(QWidget):
         self.add_folder_btn.clicked.connect(self.add_folder)
         self.buttons_layout.addWidget(self.add_folder_btn)
 
-        self.save_project_btn = QPushButton("Save Project")
-        self.save_project_btn.clicked.connect(self.save_project)
-        self.buttons_layout.addWidget(self.save_project_btn)
+        self.save_btn = QPushButton("Save Project")
+        self.save_btn.clicked.connect(self.save_project)
+        self.buttons_layout.addWidget(self.save_btn)
+
+        self.save_as_btn = QPushButton("Save As")
+        self.save_as_btn.clicked.connect(self.save_new_project)
+        self.buttons_layout.addWidget(self.save_as_btn)
 
         self.load_project_btn = QPushButton("Load Project")
         self.load_project_btn.clicked.connect(self.load_project)
         self.buttons_layout.addWidget(self.load_project_btn)
+
+        # project path
+        self.project_path = None
 
         # File tree
         self.file_tree = FileSystemWidget()
@@ -87,6 +101,9 @@ class FileManager(QWidget):
         self.file_tree.itemDoubleClicked.connect(self.on_item_activated)
         self.file_tree.customContextMenuRequested.connect(self.show_context_menu)
         self.layout.addWidget(self.file_tree)
+
+        # Copy
+        self.copied_items = None
 
     # ------------------ File & Folder Management ------------------
 
@@ -100,6 +117,11 @@ class FileManager(QWidget):
                     file_item = QTreeWidgetItem([os.path.abspath(file_path)])
                     file_item.setData(0, PATH_ROLE, file_path)  # Store full path
                     file_item.setData(1, ITEM_TYPE_ROLE, "video")  # Mark as video
+                    file_item.setData(2, DATA_ROLE, Video(
+                            video_path=file_path,
+                            setting=None,  # Default setting
+                        )
+                    )
                     self.file_tree.addTopLevelItem(file_item)
 
             if count == 0:
@@ -120,24 +142,46 @@ class FileManager(QWidget):
 
     # ------------------ Distortion Box ------------------
 
-    def add_distortion_box(self, parent_item):
+    def add_distortion_box(self, parent_item, name=None, x=0, y=0, size=128):
         item_type = parent_item.data(1, ITEM_TYPE_ROLE)
         if item_type != "video":
             return  # Only add boxes to videos
 
-        name, ok = QInputDialog.getText(self, "Box Name", "Enter box label:")
-        if not ok or not name:
-            return
+        if name is None:
+            name, ok = QInputDialog.getText(self, "Box Name", "Enter box label:")
+            if not ok or not name:
+                return
 
         box_item = QTreeWidgetItem([name])
         box_item.setData(1, ITEM_TYPE_ROLE, "box")
-        box_item.setData(2, DATA_ROLE, {"name": name, "x": 0, "y": 0, "width": 128, "height": 128})
+        box_item.setData(2, DATA_ROLE, Distortion(
+            name=name,
+            video_path=parent_item.data(0, PATH_ROLE),
+            setting=parent_item.data(2, DATA_ROLE).setting,
+            x=x,
+            y=y,
+            size=size
+        ))
         parent_item.addChild(box_item)
         parent_item.setExpanded(True)
 
 
         if self.model and self.model.active_video == parent_item:
             self.model.add_box_to_active_video(box_item)
+
+    def copy_distortion_boxes(self):
+        self.copied_items = []
+        selected_items = self.file_tree.selectedItems()
+        for item in selected_items:
+            item_type = item.data(1, ITEM_TYPE_ROLE)
+            if item_type == "box":
+                self.copied_items.append((item.data(2, DATA_ROLE).name,
+                                          item.data(2, DATA_ROLE).x,
+                                          item.data(2, DATA_ROLE).y,
+                                            item.data(2, DATA_ROLE).size))
+
+        if not self.copied_items:
+            self.status_label.setText("No boxes selected to copy.")
 
     # ------------------ Context Menu ------------------
 
@@ -151,9 +195,48 @@ class FileManager(QWidget):
         item_type = item.data(1, ITEM_TYPE_ROLE)
         if item_type == "video":
             menu.addAction("Add Distortion Box", lambda: self.add_distortion_box(item))
+            menu.addAction("Edit Properties", lambda: self.edit_video_properties(item))
+
+            if self.copied_items is not None:
+                menu.addAction("Paste Box(es)", lambda: [
+                    self.add_distortion_box(item, name=name, x=x, y=y, size=size) for name, x, y, size in self.copied_items
+                ])
+        else:
+            # currently, only folders and boxes can be renamed
+            menu.addAction("Rename", lambda: self.rename_item(item))
+
+        if item_type == "box":
+            menu.addAction("Copy Box(es)", self.copy_distortion_boxes)
+
         menu.addAction("Remove Item", lambda: self.remove_item(item))
 
         menu.exec(self.file_tree.viewport().mapToGlobal(pos))
+
+
+    def edit_video_properties(self, item):
+        assert item.data(1, ITEM_TYPE_ROLE) == "video", "Item must be a video."
+
+        try: 
+            setting, ok = QInputDialog.getInt(
+                self, "Edit Video Setting", "Enter new setting:",
+                value=item.data(2, DATA_ROLE).setting, min=0
+            )
+        except TypeError:
+            setting, ok = QInputDialog.getInt(
+                self, "Edit Video Setting", "Enter new setting:",
+                value=0, min=0
+            )
+
+        if ok:
+            data = item.data(2, DATA_ROLE)
+            data.setting = setting
+            item.setData(2, DATA_ROLE, data)
+
+            for i in range(item.childCount()):
+                child = item.child(i)
+                box_data = child.data(2, DATA_ROLE)
+                box_data.setting = setting
+                child.setData(2, DATA_ROLE, box_data)
 
     # ------------------ Item Activation ------------------
 
@@ -245,6 +328,13 @@ class FileManager(QWidget):
                 if self.model.active_video == video:
                     self.model.set_active_video(None, None)
 
+    # ------------------ Rename Item -------------------
+
+    def rename_item(self, item):
+        new_name, ok = QInputDialog.getText(self, "Rename Item", "Enter new name:")
+        if ok and new_name:
+            item.setText(0, new_name)
+
     # ------------------ Save Project ------------------
 
     def item_to_dict(self, item):
@@ -267,16 +357,40 @@ class FileManager(QWidget):
         item.setData(1, ITEM_TYPE_ROLE, data["type"])
         if data.get("path"):
             item.setData(0, PATH_ROLE, data["path"])
-        if data.get("data"):
-            item.setData(2, DATA_ROLE, data["data"])
+
+        obj_data = data.get("data")
+        if isinstance(obj_data, dict):
+            if data["type"] == "video":
+                item.setData(2, DATA_ROLE, Video(**obj_data))
+            elif data["type"] == "box":
+                item.setData(2, DATA_ROLE, Distortion(**obj_data))
+            else:
+                item.setData(2, DATA_ROLE, obj_data)
 
         for child_data in data.get("children", []):
             child_item = self.dict_to_item(child_data)
             item.addChild(child_item)
         
         return item
-
+    
     def save_project(self):
+        if not self.project_path:
+            self.save_new_project()
+            return
+        
+        project_data = []
+        for i in range(self.file_tree.topLevelItemCount()):
+            item = self.file_tree.topLevelItem(i)
+            project_data.append(self.item_to_dict(item))
+
+        with open(self.project_path, "w", encoding="utf-8") as f:
+            json.dump(project_data, f, cls=EnhancedJSONEncoder,indent=4)
+
+        self.status_label.setText(f"Project saved to {self.project_path}")
+        self.project_path = self.project_path
+
+
+    def save_new_project(self):
         file_path, _ = QFileDialog.getSaveFileName(self, "Save Project", "", "Project Files (*.json)")
         if not file_path:
             return
@@ -287,9 +401,10 @@ class FileManager(QWidget):
             project_data.append(self.item_to_dict(item))
 
         with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(project_data, f, indent=4)
+            json.dump(project_data, f, cls=EnhancedJSONEncoder,indent=4)
 
         self.status_label.setText(f"Project saved to {file_path}")
+        self.project_path = file_path
 
     def load_project(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Load Project", "", "Project Files (*.json)")
@@ -306,6 +421,7 @@ class FileManager(QWidget):
             self.file_tree.addTopLevelItem(item)
 
         self.status_label.setText(f"Project loaded from {file_path}")
+        self.project_path = file_path
 
     # ------------------ Model Event Handlers ------------------
     def on_video_loaded(self, video_path):

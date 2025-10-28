@@ -12,6 +12,8 @@ from video_viewer.clickable_label import ClickableLabel
 from video_viewer.box import DistortionBox, Zoombox
 from video_viewer.project_model import ProjectModel
 from video_viewer.qtroles import PATH_ROLE, ITEM_TYPE_ROLE, DATA_ROLE
+from video_viewer.cov_pca import residue_to_histogram_feature
+from video_viewer.channels import *
 
 
 class VideoViewer(QWidget):
@@ -25,11 +27,12 @@ class VideoViewer(QWidget):
 
         self.cap = None
         self.timer = QTimer()
-        self.timer.timeout.connect(self.update_frame_timer)
+        self.timer.timeout.connect(self.read_one_frame_and_render)
         self.paused = False
 
         # Buffer for current frame (RGB)
         self.current_rgb_frame = None
+        self.prev_rgb_frame = None
 
         # UI Elements
         self.full_view = ClickableLabel(text="Full Video View", parent=self)
@@ -50,18 +53,26 @@ class VideoViewer(QWidget):
         # Buttons
         self.play_button = QPushButton("⏸ Pause")
         self.rewind_button = QPushButton("⏪ Rewind")
+        self.rewind_1_button = QPushButton("⏪ 1 Frame")
+        self.forward_1_button = QPushButton("⏩ 1 Frame")
         self.forward_button = QPushButton("⏩ Forward")
         self.zoom_in_button = QPushButton("➕ Zoom In")
         self.zoom_out_button = QPushButton("➖ Zoom Out")
+        self.channel_button = QPushButton("Original")
 
         self.play_button.clicked.connect(self.toggle_play)
         self.rewind_button.clicked.connect(self.rewind_video)
+        self.rewind_1_button.clicked.connect(lambda: self.rewind_video(frame=1))
+        self.forward_1_button.clicked.connect(lambda: self.forward_video(frame=1))
         self.forward_button.clicked.connect(self.forward_video)
         self.zoom_in_button.clicked.connect(self.zoom_in)
         self.zoom_out_button.clicked.connect(self.zoom_out)
+        self.channel_button.clicked.connect(self.change_channel)
 
         self.play_button.setEnabled(False)
         self.rewind_button.setEnabled(False)
+        self.rewind_1_button.setEnabled(False)
+        self.forward_1_button.setEnabled(False)
         self.forward_button.setEnabled(False)
         self.zoom_in_button.setEnabled(False)
         self.zoom_out_button.setEnabled(False)
@@ -73,8 +84,8 @@ class VideoViewer(QWidget):
         info_layout.addWidget(self.frame_num_label)
 
         button_layout = QHBoxLayout()
-        for btn in (self.play_button, self.rewind_button, self.forward_button,
-                    self.zoom_in_button, self.zoom_out_button):
+        for btn in (self.play_button, self.rewind_button, self.rewind_1_button, self.forward_1_button, self.forward_button,
+                    self.zoom_in_button, self.zoom_out_button, self.channel_button):
             button_layout.addWidget(btn)
 
         # the layout
@@ -87,10 +98,12 @@ class VideoViewer(QWidget):
         layout.addLayout(button_layout)
         self.setLayout(layout)
 
+        self.retain_frame_num_on_load = True
         self.zoombox = None  # will be initialized on video open
         self.dragging = False
         self.drag_start_pos = None  # initial mouse position
         self.drag_start_box = None
+        self.channel = ORIGINAL
 
     def load_video_from_model(self, flags):
         if flags["active_video_changed"]:
@@ -102,12 +115,17 @@ class VideoViewer(QWidget):
             self.render_frames()
 
     def load_video(self, path):
+        current_frame = None
         if self.cap:
+            if self.retain_frame_num_on_load:
+                current_frame = int(self.cap.get(cv2.CAP_PROP_POS_FRAMES)) - 1
+
             self.cap.release()
         self.cap = cv2.VideoCapture(path)
         self.current_rgb_frame = None
-        # start timer for playback (will call update_frame_timer)
-        self.timer.start(30)
+        # start timer for playback
+        if not self.paused:
+            self.timer.start(30)
 
         self.read_one_frame()
         if self.current_rgb_frame is None:
@@ -115,6 +133,8 @@ class VideoViewer(QWidget):
         
         self.play_button.setEnabled(True)
         self.rewind_button.setEnabled(True)
+        self.rewind_1_button.setEnabled(True)
+        self.forward_1_button.setEnabled(True)
         self.forward_button.setEnabled(True)
         self.zoom_in_button.setEnabled(True)
         self.zoom_out_button.setEnabled(True)
@@ -141,6 +161,12 @@ class VideoViewer(QWidget):
                 original_width=w,
                 original_height=h,
             )
+
+        if self.retain_frame_num_on_load and current_frame:
+            try:
+                self.reset_prev_frame(current_frame)
+            except Exception as e:
+                self.reset_prev_frame(0)
 
         self.render_frames()
         self.model.video_loaded.emit(self.model.active_video.data(0, PATH_ROLE))
@@ -182,19 +208,21 @@ class VideoViewer(QWidget):
             self.timer.stop()
             self.play_button.setText("▶ Play")
 
-    def rewind_video(self):
+    def rewind_video(self, frame: int | None = None):
         """Go back 1 second (adjustable)."""
         seconds = 1
         if not self.cap:
             return
         fps = self.cap.get(cv2.CAP_PROP_FPS) or 25.0
         current_frame = self.cap.get(cv2.CAP_PROP_POS_FRAMES)
-        new_frame = max(current_frame - int(seconds * fps), 0)
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, new_frame)
-        # read one frame immediately to update buffer/render
-        self.read_one_frame_and_render()
+        if frame:
+            new_frame = max(current_frame - 1 - frame, 0)
+        else:
+            new_frame = max(current_frame - int(seconds * fps) - 1, 0)
+        self.reset_prev_frame(new_frame)
+        self.render_frames()
 
-    def forward_video(self):
+    def forward_video(self, frame: int | None = None):
         """Go forward 1 second (adjustable)."""
         seconds = 1
         if not self.cap:
@@ -202,9 +230,13 @@ class VideoViewer(QWidget):
         fps = self.cap.get(cv2.CAP_PROP_FPS) or 25.0
         total_frames = self.cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
         current_frame = self.cap.get(cv2.CAP_PROP_POS_FRAMES)
-        new_frame = min(current_frame + int(seconds * fps), max(total_frames - 1, 0))
-        self.cap.set(cv2.CAP_PROP_POS_FRAMES, new_frame)
-        self.read_one_frame_and_render()
+        if frame:
+            new_frame = min(current_frame - 1 + frame, max(total_frames - 1, 0))
+        else:
+            new_frame = min(current_frame + int(seconds * fps) - 1, max(total_frames - 1, 0))
+        self.reset_prev_frame(new_frame)
+        self.render_frames()
+
 
     def zoom_in(self):
         """Zoom in if a zoombox exists."""
@@ -230,7 +262,7 @@ class VideoViewer(QWidget):
         if self.model.selected_box:
             box_data = self.model.selected_box.data(2, DATA_ROLE)
             self.drag_target = "distortion"
-            self.drag_start_box = (box_data["x"], box_data["y"])
+            self.drag_start_box = (box_data.x, box_data.y)
 
         elif self.zoombox:
             self.drag_target = "zoom"
@@ -261,12 +293,12 @@ class VideoViewer(QWidget):
 
         elif self.drag_target == "distortion" and self.model.selected_box is not None:
             box_data = self.model.selected_box.data(2, DATA_ROLE)
-            new_x = min(max(0, self.drag_start_box[0] + dx_frame), frame_w - box_data["width"])
-            new_y = min(max(0, self.drag_start_box[1] + dy_frame), frame_h - box_data["height"])
+            new_x = min(max(0, self.drag_start_box[0] + dx_frame), frame_w - box_data.size)
+            new_y = min(max(0, self.drag_start_box[1] + dy_frame), frame_h - box_data.size)
 
             # update model’s box data in-place
-            box_data["x"] = new_x
-            box_data["y"] = new_y
+            box_data.x = new_x
+            box_data.y = new_y
             self.model.selected_box.setData(2, DATA_ROLE, box_data)
 
         self.render_frames()
@@ -275,8 +307,8 @@ class VideoViewer(QWidget):
         """Update the coordinate label based on the selected box or zoombox."""
         if self.model.selected_box is not None:
             box_data = self.model.selected_box.data(2, DATA_ROLE)
-            x, y = int(box_data["x"]), int(box_data["y"])
-            w, h = int(box_data["width"]), int(box_data["height"])
+            x, y = int(box_data.x), int(box_data.y)
+            w, h = int(box_data.size), int(box_data.size)
             self.coord_label.setText(f"📦 Box: x={x}, y={y}, w={w}, h={h}")
         elif self.zoombox:
             self.coord_label.setText(
@@ -292,25 +324,47 @@ class VideoViewer(QWidget):
         self.drag_start_pos = None
         self.drag_start_box = None
 
+    def change_channel(self):
+        self.channel += 1
+        if self.channel >= NUM_CHANNELS:
+            self.channel = 0
+        self.channel_button.setText(CHANNEL[self.channel])
+        self.render_frames()
+
+    def reset_prev_frame(self, index: int):
+        """Reset the previous frame buffer (for residue calculation)."""
+
+        self.cap.set(cv2.CAP_PROP_POS_FRAMES, index - 1)
+        ret, frame = self.cap.read()
+        self.prev_rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        ret, frame = self.cap.read()
+        self.current_rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        if MIN_FRAME_NUM[self.channel] <= index:
+            self.cap.set(cv2.CAP_PROP_POS_FRAMES, index+1)
+            
+
     def read_one_frame(self):
         """Read a single frame from cap to update the buffer."""
         if not self.cap:
             return
         ret, frame = self.cap.read()
         if not ret:
+            self.handle_end_of_video()
             return
+        
+        if self.current_rgb_frame is not None:
+            # keep a copy for residue calculation
+            self.prev_rgb_frame = self.current_rgb_frame.copy()
+        else:
+            self.prev_rgb_frame = None
+
         self.current_rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        
 
     def read_one_frame_and_render(self):
         """Read a single frame from cap to update the buffer and render."""
-        if not self.cap:
-            return
-        ret, frame = self.cap.read()
-        if not ret:
-            # stop timer and keep last frame (if any)
-            self.handle_end_of_video()
-            return
-        self.current_rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        self.read_one_frame()
         self.render_frames()
 
     def handle_end_of_video(self):
@@ -318,17 +372,6 @@ class VideoViewer(QWidget):
         self.timer.stop()
         self.paused = True
         self.play_button.setText("▶ Play")
-
-    def update_frame_timer(self):
-        """Called on every timer tick when playing (advances playback)."""
-        if not self.cap or self.paused:
-            return
-        ret, frame = self.cap.read()
-        if not ret:
-            self.handle_end_of_video()
-            return
-        self.current_rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        self.render_frames()
 
     def resizeEvent(self, event):
         """Redraw frame on window resize (and when widgets change size)."""
@@ -343,7 +386,16 @@ class VideoViewer(QWidget):
         if self.current_rgb_frame is None:
             return
 
-        rgb_frame = self.current_rgb_frame.copy()
+        if self.channel == ORIGINAL:
+            rgb_frame = self.current_rgb_frame.copy()
+        elif self.channel == RESIDUE:
+            rgb_frame = self.current_rgb_frame.copy()
+            # Apply residue processing here
+
+            if self.prev_rgb_frame is not None:
+                residue = cv2.absdiff(self.current_rgb_frame, self.prev_rgb_frame)
+                rgb_frame = residue * 4  # amplify for visibility
+        
         h, w, _ = rgb_frame.shape
         if h == 0 or w == 0:
             return
@@ -366,9 +418,8 @@ class VideoViewer(QWidget):
         if self.model.boxes:
             for box in self.model.boxes:
                 box_data = box.data(2, DATA_ROLE)
-                x1, y1 = int(box_data["x"]), int(box_data["y"])
-                x2, y2 = x1 + int(box_data["width"]), y1 + int(box_data["height"])
-                
+                x1, y1 = int(box_data.x), int(box_data.y)
+                x2, y2 = x1 + int(box_data.size), y1 + int(box_data.size)
 
                 if box == self.model.selected_box:
                     cv2.rectangle(rgb_frame, (x1, y1), (x2, y2), (0, 50, 255), 2) # blue for selected
@@ -404,6 +455,10 @@ class VideoViewer(QWidget):
         # Render both views
         draw_to_label(self.full_view, rgb_frame)
         draw_to_label(self.zoom_view, zoomed)
+
+        # if self.model.selected_box:
+        #     hist = residue_to_histogram_feature(zoomed)
+        #     print(hist)
 
         # update info bar
         self.update_coord_label()
