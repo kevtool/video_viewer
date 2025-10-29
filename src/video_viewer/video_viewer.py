@@ -1,5 +1,6 @@
 import sys
 import cv2
+import numpy as np
 from PyQt6.QtWidgets import (
     QApplication, QLabel, QWidget, QPushButton, QHBoxLayout, QVBoxLayout,
     QFileDialog, QSplitter, QSizePolicy
@@ -12,7 +13,7 @@ from video_viewer.clickable_label import ClickableLabel
 from video_viewer.box import DistortionBox, Zoombox
 from video_viewer.project_model import ProjectModel
 from video_viewer.qtroles import PATH_ROLE, ITEM_TYPE_ROLE, DATA_ROLE
-from video_viewer.cov_pca import residue_to_histogram_feature
+from video_viewer.cov_pca import apply_pca
 from video_viewer.channels import *
 
 
@@ -388,7 +389,7 @@ class VideoViewer(QWidget):
 
         if self.channel == ORIGINAL:
             rgb_frame = self.current_rgb_frame.copy()
-        elif self.channel == RESIDUE:
+        elif self.channel == RESIDUE or self.channel == PCA1:
             rgb_frame = self.current_rgb_frame.copy()
             # Apply residue processing here
 
@@ -399,18 +400,15 @@ class VideoViewer(QWidget):
         h, w, _ = rgb_frame.shape
         if h == 0 or w == 0:
             return
+        
+        boxes_to_draw = []
 
         # Get zoombox coordinates
         if self.zoombox:
             x1, y1, x2, y2 = self.zoombox.get_coordinates()
 
-        # Draw rectangle on full view to indicate zoomed area
-        cv2.rectangle(
-            rgb_frame,           # target image
-            (x1, y1), (x2, y2),  # top-left, bottom-right
-            color=(255, 0, 0),   # red box (RGB)
-            thickness=2,         # thickness in pixels
-        )
+        boxes_to_draw.append((x1, y1, x2, y2, (255, 0, 0)))  # red box for zoombox
+
 
         zoomed_x1, zoomed_y1 = x1, y1
         zoomed_x2, zoomed_y2 = x2, y2
@@ -422,14 +420,15 @@ class VideoViewer(QWidget):
                 x2, y2 = x1 + int(box_data.size), y1 + int(box_data.size)
 
                 if box == self.model.selected_box:
-                    cv2.rectangle(rgb_frame, (x1, y1), (x2, y2), (0, 50, 255), 2) # blue for selected
+                    boxes_to_draw.append((x1, y1, x2, y2, (0, 50, 255)))  # blue for selected
                     zoomed_x1, zoomed_y1 = x1, y1
                     zoomed_x2, zoomed_y2 = x2, y2
+
 
                     # distortion box must be square. set height equal to width so that zoomed view is also square.
                     h = w
                 else:
-                    cv2.rectangle(rgb_frame, (x1, y1), (x2, y2), (0, 255, 0), 2) # green for others
+                    boxes_to_draw.append((x1, y1, x2, y2, (0, 255, 0)))  # green for others
 
         # If the crop would be invalid for any reason, fall back to whole frame
         if zoomed_x2 <= zoomed_x1 or zoomed_y2 <= zoomed_y1:
@@ -438,6 +437,23 @@ class VideoViewer(QWidget):
             zoomed = rgb_frame[zoomed_y1:zoomed_y2, zoomed_x1:zoomed_x2]
             # resize zoomed region up to original frame size for quality before final label scaling
             zoomed = cv2.resize(zoomed, (w, h), interpolation=cv2.INTER_CUBIC)
+
+        if self.channel == PCA1 and self.model.selected_box is not None:
+            pc_image = apply_pca(zoomed, component=1)
+            pc_norm = cv2.normalize(pc_image, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+            pc_uint8 = np.clip(pc_norm, 0, 255).astype(np.uint8)
+            zoomed = np.stack([pc_uint8, pc_uint8, pc_uint8], axis=-1)
+
+
+        # draw the boxes
+        for box in boxes_to_draw:
+            x1, y1, x2, y2, color = box
+            cv2.rectangle(
+                rgb_frame,
+                (x1, y1), (x2, y2),
+                color=color,
+                thickness=2,
+            )
 
         # Helper to draw to a QLabel safely (skip if label size is zero)
         def draw_to_label(label, frame_to_draw):

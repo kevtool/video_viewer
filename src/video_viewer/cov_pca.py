@@ -4,6 +4,33 @@ from sklearn.decomposition import PCA
 
 from video_viewer.distortion import Distortion
 
+def apply_pca(roi, component=1):
+    """
+    Apply PCA to the ROI and return the specified principal component channel.
+    
+    roi: (H, W, 3) array
+    component: 1, 2, or 3 (1 = first PC)
+    
+    Returns: (H, W) array of the specified PCA component
+    """
+    H, W, C = roi.shape
+    assert C == 3, "Expected 3 channels"
+
+    # Reshape to (N_pixels, 3)
+    pixels = roi.reshape(-1, 3).astype(np.float32)
+
+    # Fit PCA
+    pca = PCA(n_components=3)
+    pixels_pca = pca.fit_transform(pixels)  # Shape: (H*W, 3)
+
+    # Get the specified component (1-based index)
+    pc_channel = pixels_pca[:, component - 1]
+
+    # Reshape back to (H, W)
+    pc_image = pc_channel.reshape(H, W)
+
+    return pc_image
+
 def residue_to_histogram_feature(residue, n_bins=64):
     """
     Convert a single (H, W, 3) residue array into a (3*n_bins)-dimensional feature vector.
