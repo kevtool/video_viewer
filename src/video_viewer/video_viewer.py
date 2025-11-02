@@ -35,6 +35,9 @@ class VideoViewer(QWidget):
         self.current_rgb_frame = None
         self.prev_rgb_frame = None
 
+        # residue amplification factor
+        self.residue_amplification = 4
+
         # UI Elements
         self.full_view = ClickableLabel(text="Full Video View", parent=self)
         self.zoom_view = QLabel("Zoomed View")
@@ -60,6 +63,7 @@ class VideoViewer(QWidget):
         self.zoom_in_button = QPushButton("➕ Zoom In")
         self.zoom_out_button = QPushButton("➖ Zoom Out")
         self.channel_button = QPushButton("Original")
+        self.residue_amplify_button = QPushButton(f"Residue x{self.residue_amplification}")
 
         self.play_button.clicked.connect(self.toggle_play)
         self.rewind_button.clicked.connect(self.rewind_video)
@@ -69,6 +73,7 @@ class VideoViewer(QWidget):
         self.zoom_in_button.clicked.connect(self.zoom_in)
         self.zoom_out_button.clicked.connect(self.zoom_out)
         self.channel_button.clicked.connect(self.change_channel)
+        self.residue_amplify_button.clicked.connect(self.change_residue_amplify)
 
         self.play_button.setEnabled(False)
         self.rewind_button.setEnabled(False)
@@ -86,7 +91,7 @@ class VideoViewer(QWidget):
 
         button_layout = QHBoxLayout()
         for btn in (self.play_button, self.rewind_button, self.rewind_1_button, self.forward_1_button, self.forward_button,
-                    self.zoom_in_button, self.zoom_out_button, self.channel_button):
+                    self.zoom_in_button, self.zoom_out_button, self.channel_button, self.residue_amplify_button):
             button_layout.addWidget(btn)
 
         # the layout
@@ -332,6 +337,16 @@ class VideoViewer(QWidget):
         self.channel_button.setText(CHANNEL[self.channel])
         self.render_frames()
 
+    def change_residue_amplify(self):
+        if self.residue_amplification == 1:
+            self.residue_amplification = 2
+        elif self.residue_amplification >= 14:
+            self.residue_amplification = 1
+        else:
+            self.residue_amplification += 2
+        self.residue_amplify_button.setText(f"Residue x{self.residue_amplification}")
+        self.render_frames()
+
     def reset_prev_frame(self, index: int):
         """Reset the previous frame buffer (for residue calculation)."""
 
@@ -389,17 +404,41 @@ class VideoViewer(QWidget):
 
         if self.channel == ORIGINAL:
             rgb_frame = self.current_rgb_frame.copy()
-        elif self.channel == RESIDUE or self.channel == PCA1:
+        elif self.channel == RESIDUE or self.channel == THRESHOLD_RESIDUE or self.channel == PCA1:
             rgb_frame = self.current_rgb_frame.copy()
             # Apply residue processing here
 
             if self.prev_rgb_frame is not None:
                 residue = cv2.absdiff(self.current_rgb_frame, self.prev_rgb_frame)
-                rgb_frame = residue * 4  # amplify for visibility
+                rgb_frame = residue * self.residue_amplification  # amplify for visibility
+
+
+                if self.channel == THRESHOLD_RESIDUE:
+                    # Define your threshold value (e.g., 30)
+                    threshold_value = 64
+
+                    # # Create a mask where all three channels exceed the threshold
+                    # mask = (rgb_frame[:, :, 0] > threshold_value) & \
+                    #     (rgb_frame[:, :, 1] > threshold_value) & \
+                    #     (rgb_frame[:, :, 2] > threshold_value)
+
+                    # # Initialize output as black
+                    # rgb_frame = np.zeros_like(rgb_frame)
+
+                    # # Set pixels to white where mask is True
+                    # rgb_frame[mask] = [255, 255, 255]
+
+                    gray = cv2.cvtColor(rgb_frame, cv2.COLOR_RGB2GRAY)
+                    _, thresh = cv2.threshold(gray, 64, 255, cv2.THRESH_BINARY)
+                    rgb_frame = cv2.cvtColor(thresh, cv2.COLOR_GRAY2RGB)
+
+        else:
+            raise ValueError("Unrecognized channel selected.")
         
         h, w, _ = rgb_frame.shape
         if h == 0 or w == 0:
             return
+        
         
         boxes_to_draw = []
 
@@ -420,7 +459,7 @@ class VideoViewer(QWidget):
                 x2, y2 = x1 + int(box_data.size), y1 + int(box_data.size)
 
                 if box == self.model.selected_box:
-                    boxes_to_draw.append((x1, y1, x2, y2, (0, 50, 255)))  # blue for selected
+                    boxes_to_draw.append((x1, y1, x2, y2, (255, 255, 0)))  # yellow for selected
                     zoomed_x1, zoomed_y1 = x1, y1
                     zoomed_x2, zoomed_y2 = x2, y2
 

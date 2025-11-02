@@ -4,13 +4,11 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QTimer, Qt, QPointF
 from PyQt6.QtGui import QImage, QPixmap
-from xgboost import XGBClassifier
-
 
 # internal imports
 from video_viewer.project_model import ProjectModel
 from video_viewer.qtroles import PATH_ROLE, ITEM_TYPE_ROLE, DATA_ROLE
-from video_viewer.cov_pca import get_hist_features
+from video_viewer.ml_modules.patch_pca import PatchPCA
 
 class Toolbar(QWidget):
     def __init__(self, project_model: ProjectModel,parent=None):
@@ -23,10 +21,10 @@ class Toolbar(QWidget):
         self.setLayout(layout)
 
         # Add toolbar buttons
-        self.temp_button = QPushButton("Hist Features")
+        self.temp_button = QPushButton("Run Classifier")
         layout.addWidget(self.temp_button)
 
-        self.temp_button.clicked.connect(self.get_rgb_data)
+        self.temp_button.clicked.connect(self.predict)
 
     def get_distortion_boxes(self):
         """
@@ -47,41 +45,30 @@ class Toolbar(QWidget):
             _process(self.model.file_tree.topLevelItem(i))
 
         return distortions
+    
+    def predict(self):
+        boxes = self.get_distortion_boxes()
 
-    def get_rgb_data(self):
-        # Logic to get RGB data from the video
+        ml_model = PatchPCA(config={
+            "xgboost": {
+                "n_estimators": 600,
+                "max_depth": 4,
+                "learning_rate": 0.05,
+                "subsample": 0.9,
+                "colsample_bytree": 0.8,
+                "reg_lambda": 1.0,
+                "reg_alpha": 0.0,
+                "eval_metric": "logloss",
+                "tree_method": "hist",
+                "early_stopping_rounds": 50
+            }
+        })
 
-        distortions = self.get_distortion_boxes()
-        for box in distortions:
-            print(box)
+        ml_model.set_boxes(boxes)
+        ml_model.split_boxes(train_ratio=0.8)
+        ml_model.train()
+        ml_model.predict()
 
-        X, y = get_hist_features(distortions)
-
-    def evaluate(self, X_train, y_train, X_val, y_val):
-
-
-        pos = max(1, y_train.sum())
-        neg = max(1, (y_train == 0).sum())
-        spw = neg / pos
-
-        # XGBoost classifier
-        xgb_params = config['xgboost']
-        clf = XGBClassifier(
-            **xgb_params,
-            scale_pos_weight=spw,
-            # eval_metric=xgb_params.get("eval_metric", "logloss"),
-            # early_stopping_rounds=xgb_params.get("early_stopping_rounds", 50)
-        )
-
-        # Train with early stopping
-        clf.fit(
-            X_train, y_train,
-            eval_set=[(X_val, y_val)],
-            verbose=False,
-        )
-
-        # Evaluation
-        probs = clf.predict_proba(X_val)[:, 1]
-        preds = (probs >= 0.5).astype(int)
+        print("Prediction complete.")
 
     

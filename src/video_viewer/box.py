@@ -26,7 +26,7 @@ class Zoombox(Box):
         self.zoom_factor = zoom_factor
         self.original_width = original_width
         self.original_height = original_height
-        self.max_zoom = 6
+        self.max_zoom = 7
         self.min_zoom = 1
 
     def zoom_in(self):

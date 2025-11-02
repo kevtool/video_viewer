@@ -142,7 +142,12 @@ class FileManager(QWidget):
 
     # ------------------ Distortion Box ------------------
 
-    def add_distortion_box(self, parent_item, name=None, x=0, y=0, size=128):
+    def add_distortion_box(self, parent_item, name=None, x=0, y=0, size=128, specify_size=False):
+        if specify_size:
+            size, ok = QInputDialog.getInt(self, "Box Size", "Enter box size:", value=128, min=1)
+            if not ok:
+                return
+
         item_type = parent_item.data(1, ITEM_TYPE_ROLE)
         if item_type != "video":
             return  # Only add boxes to videos
@@ -195,6 +200,7 @@ class FileManager(QWidget):
         item_type = item.data(1, ITEM_TYPE_ROLE)
         if item_type == "video":
             menu.addAction("Add Distortion Box", lambda: self.add_distortion_box(item))
+            menu.addAction("Add Sized Distortion Box", lambda: self.add_distortion_box(item, specify_size=True))
             menu.addAction("Edit Properties", lambda: self.edit_video_properties(item))
 
             if self.copied_items is not None:
@@ -213,29 +219,38 @@ class FileManager(QWidget):
         menu.exec(self.file_tree.viewport().mapToGlobal(pos))
 
 
-    def edit_video_properties(self, item):
-        assert item.data(1, ITEM_TYPE_ROLE) == "video", "Item must be a video."
+    def edit_video_properties(self, item=None):
+        # assert item.data(1, ITEM_TYPE_ROLE) == "video", "Item must be a video."
 
-        try: 
-            setting, ok = QInputDialog.getInt(
-                self, "Edit Video Setting", "Enter new setting:",
-                value=item.data(2, DATA_ROLE).setting, min=0
-            )
-        except TypeError:
-            setting, ok = QInputDialog.getInt(
-                self, "Edit Video Setting", "Enter new setting:",
-                value=0, min=0
-            )
+        selected_items = self.file_tree.selectedItems()
+        selected_videos = [it for it in selected_items if it.data(1, ITEM_TYPE_ROLE) == "video"]
 
-        if ok:
-            data = item.data(2, DATA_ROLE)
-            data.setting = setting
-            item.setData(2, DATA_ROLE, data)
+        if selected_videos:
+            targets = selected_videos
+        else:
+            if item and item.data(1, ITEM_TYPE_ROLE) == "video":
+                targets = [item]
+            else:
+                return
+
+
+        ground_truth_label, ok = QInputDialog.getInt(
+            self, "Edit Video Ground Truth", "Enter new ground truth label:",
+            value=0, min=0
+        )
+
+        if not ok:
+            return
+        
+        for item in targets:
+            # data = item.data(2, DATA_ROLE)
+            # data.ground_truth_label = ground_truth_label
+            # item.setData(2, DATA_ROLE, data)
 
             for i in range(item.childCount()):
                 child = item.child(i)
                 box_data = child.data(2, DATA_ROLE)
-                box_data.setting = setting
+                box_data.ground_truth_label = ground_truth_label
                 child.setData(2, DATA_ROLE, box_data)
 
     # ------------------ Item Activation ------------------

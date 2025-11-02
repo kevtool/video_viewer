@@ -1,16 +1,19 @@
 ORIGINAL = 0
 RESIDUE = 1
-PCA1 = 2
+THRESHOLD_RESIDUE = 2
+PCA1 = 3
 
-NUM_CHANNELS = 3
+NUM_CHANNELS = 4
 CHANNEL = {
     ORIGINAL: "Original",
     RESIDUE: "Residue",
+    THRESHOLD_RESIDUE: "Thresholded Residue",
     PCA1: "PCA1",
 }
 
 MIN_FRAME_NUM = {
     ORIGINAL: 0,
     RESIDUE: 1,
+    THRESHOLD_RESIDUE: 1,
     PCA1: 1,
 }

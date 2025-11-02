@@ -1,13 +1,11 @@
-from dataclasses import dataclass
+from pydantic import BaseModel, field_validator
 
-@dataclass
-class VideoObject:
+class VideoObject(BaseModel):
     video_path: str
     
     def __str__(self):
-        return f"{self.to_dict()}"
+        return str(self.model_dump())
 
-@dataclass
 class Video(VideoObject):
     setting: int | None = None
     
@@ -17,16 +15,22 @@ class Video(VideoObject):
             "setting": self.setting,
         }
 
-@dataclass
 class Distortion(VideoObject):
     name: str
-    x: int | float
-    y: int | float
+    x: int
+    y: int
     size: int
     setting: int | None = None
 
     predicted_label: int | None  = None  # To be set later
     ground_truth_label: int | None = None  # To be set later
+
+    @field_validator('x', 'y', 'size', mode='before')
+    @classmethod
+    def round_floats(cls, v):
+        if isinstance(v, float):
+            return round(v)  # or int(v) for truncation, math.floor(v), etc.
+        return v
 
     def to_dict(self):
         return {
