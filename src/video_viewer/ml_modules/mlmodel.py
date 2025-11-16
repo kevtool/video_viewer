@@ -46,6 +46,10 @@ class MLModel(ABC):
 
             self.test_boxes = self.val_boxes
 
+    def clear_predicted_labels(self):
+        for box in self.boxes:
+            box.predicted_label = None
+
     def set_boxes(self, boxes: List[Distortion]):
         self.boxes = boxes
 

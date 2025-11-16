@@ -229,3 +229,5 @@ histogram.png
 
 # custom
 src/video_distortion.egg-info/
+mlruns/
+*.json

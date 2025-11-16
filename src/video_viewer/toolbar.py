@@ -65,7 +65,8 @@ class Toolbar(QWidget):
         })
 
         ml_model.set_boxes(boxes)
-        ml_model.split_boxes(train_ratio=0.8)
+        ml_model.clear_predicted_labels()
+        ml_model.split_boxes(train_ratio=0.7)
         ml_model.train()
         ml_model.predict()
 
